@@ -12,8 +12,8 @@ Current checkpoint to open: **P0-01**
 | Stable/release branch  | `main`                            |
 | Integration branch     | `develop`                         |
 | Expected active branch | `feature/p0-01-scaffold`          |
-| Actual active branch   | `feature/p0-01-scaffold`          |
-| Base commit            | `afa47fd`                         |
+| Actual active branch   | TBD — cập nhật sau khi tạo branch |
+| Base commit            | TBD                               |
 | Merge target           | `develop`                         |
 | Current merge status   | NOT MERGED                        |
 
@@ -22,7 +22,7 @@ Current checkpoint to open: **P0-01**
 | Checkpoint                           | Status      | Reviewer verdict | Evidence summary                            | Next action              |
 | ------------------------------------ | ----------- | ---------------- | ------------------------------------------- | ------------------------ |
 | P0-00 Documentation Baseline         | DONE        | PASS             | 16-file Markdown planning kit cross-checked | Open P0-01 planning      |
-| P0-01 Repository & Solution Scaffold | REVIEW      | —                | Solution/5 project dựng xong; restore/build PASS; test 3/3 PASS (MTP mode, xem completion report 2026-08-19); 3 health endpoint verify thủ công PASS; secret hygiene verify PASS | Chờ ChatGPT/Product Owner verdict |
+| P0-01 Repository & Solution Scaffold | NOT STARTED | —                | —                                           | Ask Claude for plan only |
 | P0-02 Synthetic Data & Mock CRM API  | NOT STARTED | —                | —                                           | Blocked by P0-01         |
 | P0-03 Gemini Embedding & Chroma RAG  | NOT STARTED | —                | —                                           | Blocked by P0-01         |
 | P0-04 MCP Server Core Tools          | NOT STARTED | —                | —                                           | Blocked by P0-02/P0-03   |
@@ -38,8 +38,8 @@ Allowed status values: `NOT STARTED`, `PLANNING`, `APPROVED`, `IN PROGRESS`, `RE
 
 | Item                 | Value actually implemented             | Evidence/version date |
 | -------------------- | -------------------------------------- | --------------------- |
-| .NET SDK/target      | `10.0.400` (`net10.0`), pinned qua `global.json` (`rollForward: latestPatch`) | 2026-08-19 |
-| MCP packages         | Chưa thêm — hoãn tới P0-04 theo quyết định đã duyệt | 2026-08-19 (NuGet baseline vẫn `2.2.0`) |
+| .NET SDK/target      | TBD at P0-01; intended .NET 10         | —                     |
+| MCP packages         | TBD at P0-01; intended official C# SDK | —                     |
 | MCP transport        | Streamable HTTP                        | Decision baseline     |
 | Gemini chat          | `gemini-3.5-flash-lite`                | Verify at P0-01/P0-05 |
 | Gemini embedding     | `gemini-embedding-001`                 | Verify at P0-03       |
