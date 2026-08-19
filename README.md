@@ -90,32 +90,6 @@ ChatGPT không thể tự biết thay đổi trong phiên Claude nếu chưa đ�
 ## 7. Trạng thái ban đầu
 
 - P0-00 — Documentation Baseline: **DONE**
-- P0-01 — Repository & Solution Scaffold: **IN PROGRESS** (solution/health scaffold dựng xong; xem mục 8 và `docs/CHECKPOINT_STATUS.md`)
-
-## 8. Build & Run (P0-01 scaffold)
-
-Yêu cầu: .NET SDK khớp `global.json` (`10.0.400`, band `10.0.4xx`, `rollForward: latestPatch`).
-
-### Restore, build, test
-
-```powershell
-dotnet restore CrmCopilot.slnx
-dotnet build CrmCopilot.slnx --no-restore
-dotnet test tests/CrmCopilot.Tests/CrmCopilot.Tests.csproj --no-build --no-restore
-```
-
-### Chạy từng service (chỉ có `/health` ở P0-01, chưa có business logic)
-
-| Service | Lệnh chạy | Health URL |
-| --- | --- | --- |
-| `CrmCopilot.Web` | `dotnet run --project src/CrmCopilot.Web --launch-profile http --no-build` | http://localhost:5081/health |
-| `CrmCopilot.McpServer` | `dotnet run --project src/CrmCopilot.McpServer --launch-profile http --no-build` | http://localhost:5090/health |
-| `CrmCopilot.MockCrmApi` | `dotnet run --project src/CrmCopilot.MockCrmApi --launch-profile http --no-build` | http://localhost:5100/health |
-
-Chạy `dotnet build CrmCopilot.slnx` trước khi dùng `--no-build`. Mỗi service dùng port cố định qua `Properties/launchSettings.json` (profile `http`), không hard-code port trong `Program.cs`.
-
-### Secret hygiene
-
-- Copy `.env.example` thành `.env` (đã bị `.gitignore` chặn) và điền giá trị thật khi checkpoint tương ứng yêu cầu (P0-02/P0-03/P0-05).
-- Không commit `.env`, `secrets.json`, `appsettings.Development.json`.
+- Checkpoint tiếp theo: **P0-01 — Repository & Solution Scaffold**
+- Chưa có source code ứng dụng trong bộ tài liệu này.
 
