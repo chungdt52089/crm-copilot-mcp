@@ -114,8 +114,45 @@ dotnet test tests/CrmCopilot.Tests/CrmCopilot.Tests.csproj --no-build --no-resto
 
 Chạy `dotnet build CrmCopilot.slnx` trước khi dùng `--no-build`. Mỗi service dùng port cố định qua `Properties/launchSettings.json` (profile `http`), không hard-code port trong `Program.cs`.
 
+`CrmCopilot.McpServer` yêu cầu biến môi trường `MOCKCRM_API_BASE_URL` (absolute URL, ví dụ `http://localhost:5100`) để khởi động — không có giá trị mặc định nào trong `appsettings.json`. Thiếu hoặc sai giá trị sẽ làm host fail fast ngay khi start thay vì âm thầm fallback. Xem mục "Secret hygiene" bên dưới để biết cách set giá trị này cho `dotnet run` cục bộ.
+
+### Mock CRM API (P0-02)
+
+Khi `CrmCopilot.MockCrmApi` đang chạy (`http://localhost:5100`), các endpoint đọc-only sau đã sẵn sàng, đọc từ `data/crm/customers.json` và `data/crm/interactions.json` (dataset tổng hợp, `synthetic: true`):
+
+| Method | Path | Mô tả |
+| --- | --- | --- |
+| GET | `/api/customers/{customerId}` | Tra cứu chính xác theo ID; `404 NOT_FOUND` nếu không thấy |
+| GET | `/api/customers?query={nameOrId}` | Tìm theo ID hoặc tên chuẩn hoá; `409` (body `ApiEnvelope<CustomerCandidateDto[]>`) nếu trùng tên |
+| GET | `/api/customers/{customerId}/interactions?limit=5` | Interaction mới nhất trước, `limit` 1–20; `404 NOT_FOUND` nếu customer không tồn tại |
+
+Ví dụ nhanh (canonical customer `CUS-0001`, xem `docs/06_DATA_AND_MOCK_API_SPEC.md` §3):
+
+```powershell
+curl http://localhost:5100/api/customers/CUS-0001
+curl http://localhost:5100/api/customers/CUS-0001/interactions
+```
+
+### Regenerate the synthetic dataset
+
+Dataset được sinh deterministic từ seed cố định (`SyntheticDatasetGenerator`), không chỉnh tay file JSON lớn. Không chạy lệnh dưới đây với `--customers` lớn và commit kết quả nếu chưa được Product Owner phê duyệt kích thước dataset mới.
+
+```powershell
+dotnet run --project src/CrmCopilot.MockCrmApi --no-build -- --generate-dataset [--customers N] [--seed N] [--output <dir>]
+```
+
+Không tham số sẽ tái tạo đúng dataset đã checked-in (12 customers / ~26 interactions) vào `data/crm/`, độc lập với current working directory.
+
 ### Secret hygiene
 
-- Copy `.env.example` thành `.env` (đã bị `.gitignore` chặn) và điền giá trị thật khi checkpoint tương ứng yêu cầu (P0-02/P0-03/P0-05).
+- `.env.example` chỉ là **configuration template** liệt kê tên biến môi trường cần thiết theo từng checkpoint (P0-02/P0-03/P0-05). Repo hiện **không có code hoặc package nào tự động đọc file `.env`** — copy `.env.example` thành `.env` (đã bị `.gitignore` chặn) chỉ tạo một bản ghi chú giá trị cục bộ cho riêng bạn; `dotnet run` sẽ **không** tự đọc được các giá trị đó.
+- Để `dotnet run` cục bộ thấy được giá trị, phải export thành environment variable thật trong session PowerShell trước khi chạy, ví dụ:
+
+  ```powershell
+  $env:MOCKCRM_API_BASE_URL = "http://localhost:5100"
+  dotnet run --project src/CrmCopilot.McpServer --launch-profile http --no-build
+  ```
+
+- `.env` sẽ chỉ thực sự được một cơ chế nào đó nạp khi repo bổ sung Docker Compose (`--env-file .env`) hoặc một dotenv loader thật (chưa có ở P0-02) — README sẽ cập nhật lại mục này khi đó.
 - Không commit `.env`, `secrets.json`, `appsettings.Development.json`.
 
