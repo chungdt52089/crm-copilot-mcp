@@ -23,7 +23,7 @@ Current checkpoint to open: **P0-01**
 | ------------------------------------ | ----------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
 | P0-00 Documentation Baseline         | DONE        | PASS             | 16-file Markdown planning kit cross-checked                                                                                                                                      | Open P0-01 planning               |
 | P0-01 Repository & Solution Scaffold | DONE        | PASS             | restore PASS; build PASS with 0 warnings/errors; tests 3/3 PASS using Microsoft.Testing.Platform; three Kestrel health endpoints returned HTTP 200; secret hygiene PASS. | Open P0-02 planning                |
-| P0-02 Synthetic Data & Mock CRM API  | NOT STARTED | —                | —                                                                                                                                                                                | Open P0-02 planning               |
+| P0-02 Synthetic Data & Mock CRM API  | DONE        | PASS             | Dataset 12 customers / 26 interactions (seed 20260818), deterministic + golden-tested against checked-in JSON; restore/build PASS with 0 warnings/errors; tests 50/50 PASS; customer lookup/search (incl. 409 AMBIGUOUS_MATCH data-envelope contract) and interaction endpoints verified by test + manual curl; MockCrmGateway full error mapping and ValidateOnStart fail-fast verified; README `.env` wording corrected in final audit. | Open P0-03 planning               |
 | P0-03 Gemini Embedding & Chroma RAG  | NOT STARTED | —                | —                                                                                                                                                                                | Blocked by P0-01                  |
 | P0-04 MCP Server Core Tools          | NOT STARTED | —                | —                                                                                                                                                                                | Blocked by P0-02/P0-03            |
 | P0-05 AI Host + MCP Client           | NOT STARTED | —                | —                                                                                                                                                                                | Blocked by P0-04                  |
@@ -45,13 +45,14 @@ Allowed status values: `NOT STARTED`, `PLANNING`, `APPROVED`, `IN PROGRESS`, `RE
 | Gemini embedding     | `gemini-embedding-001`                                                        | Verify at P0-03                         |
 | Embedding dimension  | 768 + L2 normalized                                                           | Verify at P0-03                         |
 | Chroma version/image | TBD and pinned at P0-03                                                       | —                                       |
-| Dataset version/hash | TBD at P0-02                                                                  | —                                       |
+| Dataset version/hash | seed=20260818, 12 customers / 26 interactions; SHA-256 customers.json=`14c500f9…6c4b2e9d8`, interactions.json=`52af5586…3a0a52da558` | 2026-08-19 |
 
 ## 3. Review log
 
 | Date       | Checkpoint | Artifact reviewed      | Verdict | Required follow-up            |
 | ---------- | ---------- | ---------------------- | ------- | ----------------------------- |
 | 2026-08-18 | P0-00      | Documentation baseline | PASS    | Begin P0-01 plan; no code yet |
+| 2026-08-19 | P0-02      | Synthetic dataset + Mock CRM API implementation, plus final audit corrections (409 contract, MockCrmGateway error mapping, ValidateOnStart fail-fast, README `.env` wording) | PASS | Open P0-03 planning |
 
 ## 4. Blocker log
 
