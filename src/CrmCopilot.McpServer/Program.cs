@@ -3,6 +3,7 @@ using CrmCopilot.McpServer.Crm;
 using CrmCopilot.McpServer.Knowledge;
 using CrmCopilot.McpServer.Knowledge.Ingestion;
 using Microsoft.Extensions.Options;
+using ModelContextProtocol.AspNetCore;
 
 if (await TryRunKnowledgeIngestionAsync(args))
 {
@@ -17,12 +18,18 @@ if (await TryRunKnowledgeQueryAsync(args))
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddHealthChecks();
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddCrmGateway(builder.Configuration);
 builder.Services.AddKnowledgeRetrieval(builder.Configuration);
+builder.Services.AddMcpServer()
+    .WithHttpTransport(options => options.SessionMode = HttpServerSessionMode.Stateless)
+    .WithTools<CustomerTools>()
+    .WithTools<KnowledgeTools>();
 
 var app = builder.Build();
 
 app.MapHealthChecks("/health");
+app.MapMcp("/mcp");
 
 app.Run();
 

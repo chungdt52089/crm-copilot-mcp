@@ -27,4 +27,25 @@ internal static class KnowledgeDocumentTypeWireFormat
         _ => throw new KnowledgeVectorStoreException(
             $"Chroma metadata for '{sourceId}' has an unrecognized documentType '{wireValue}'.", retryable: false),
     };
+
+    /// <summary>
+    /// Non-throwing counterpart to <see cref="FromWire"/>, for validating untrusted P0-04 tool
+    /// input (search_product_knowledge's documentTypes filter) — an unrecognized value there is a
+    /// client INVALID_ARGUMENT, not the Chroma-metadata-corruption failure FromWire represents.
+    /// </summary>
+    public static bool TryFromWire(string wireValue, out KnowledgeDocumentType documentType)
+    {
+        switch (wireValue)
+        {
+            case Product:
+                documentType = KnowledgeDocumentType.Product;
+                return true;
+            case EmailTemplate:
+                documentType = KnowledgeDocumentType.EmailTemplate;
+                return true;
+            default:
+                documentType = default;
+                return false;
+        }
+    }
 }

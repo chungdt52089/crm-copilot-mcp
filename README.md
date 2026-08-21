@@ -92,7 +92,7 @@ ChatGPT không thể tự biết thay đổi trong phiên Claude nếu chưa đ�
 - P0-00 — Documentation Baseline: **DONE**
 - P0-01 — Repository & Solution Scaffold: **DONE**
 - P0-02 — Synthetic Data & Mock CRM API: **DONE**
-- P0-03 — Gemini Embedding & Chroma RAG: **IN PROGRESS** (implementation trên `feature/p0-03-rag-chroma` chưa commit; xem mục 8 "Gemini Embedding & Chroma RAG (P0-03)" và `docs/CHECKPOINT_STATUS.md`)
+- P0-03 — Gemini Embedding & Chroma RAG: **DONE** (PASS; merged to `develop` via PR #7; xem mục 8 "Gemini Embedding & Chroma RAG (P0-03)" và `docs/CHECKPOINT_STATUS.md`)
 
 Chi tiết evidence/verdict từng checkpoint xem `docs/CHECKPOINT_STATUS.md`.
 
@@ -193,6 +193,27 @@ dotnet test tests/CrmCopilot.Tests/CrmCopilot.Tests.csproj --no-build --no-resto
 `--filter-class`/`--filter-method`/`--filter-namespace`/`--filter-query`/`--filter` (cú pháp VSTest) đều là option gốc của `dotnet test` cho project này. `--filter-query` cần đúng 4 segment `/assemblyName/namespace/class/method` — một pattern 3 segment như `*/LiveRagAcceptanceTests/*` sẽ không khớp gì và chạy "Zero tests ran" (exit 5), không phải lỗi cấu hình.
 
 **Rollback**: `git revert` cho code (không `reset --hard`); named volume `crm-copilot-chroma-data` không bao giờ bị xoá; nếu cần dọn collection test, chỉ xoá đúng `crm-copilot-knowledge-livetest` qua Chroma delete-collection endpoint — không đụng tới collection dev mặc định `crm-copilot-knowledge`.
+
+### MCP Server Core Tools (P0-04)
+
+`CrmCopilot.McpServer` chạy MCP Server thật (official C# SDK `ModelContextProtocol.AspNetCore`, Streamable HTTP, `HttpServerSessionMode.Stateless`) tại `http://localhost:5090/mcp`, expose 3 tool read-only: `get_customer`, `get_interactions` (qua `ICrmGateway`/`MockCrmGateway`, P0-02), `search_product_knowledge` (qua `IKnowledgeRetriever`/`KnowledgeRetriever`, P0-03). Không có tool nào ghi dữ liệu; `generate_email` là P0-07.
+
+Chạy đầy đủ web host (không phải hai CLI verb `--ingest-knowledge`/`--query-knowledge`) cần cả ba biến môi trường bắt buộc — `MOCKCRM_API_BASE_URL`, `GEMINI_API_KEY`, `CHROMA_BASE_URL` — cùng cơ chế fail-fast `ValidateOnStart()` đã có từ P0-02/P0-03. `search_product_knowledge` gọi Gemini embedding thật khi được invoke; hai tool còn lại không cần Gemini nhưng vẫn cần `GEMINI_API_KEY` hợp lệ (không rỗng) để host khởi động được, vì `ValidateOnStart` áp dụng cho toàn bộ host, không riêng từng tool.
+
+```powershell
+# Terminal 1
+dotnet run --project src/CrmCopilot.MockCrmApi --launch-profile http --no-build
+
+# Terminal 2 (Chroma đã chạy theo hướng dẫn P0-03 ở trên)
+$env:MOCKCRM_API_BASE_URL = "http://localhost:5100"
+$env:GEMINI_API_KEY = "<giá trị thật, chỉ cục bộ, không commit>"
+$env:CHROMA_BASE_URL = "http://localhost:8000"
+dotnet run --project src/CrmCopilot.McpServer --launch-profile http --no-build
+
+curl http://localhost:5090/health
+```
+
+Xác minh tool discovery/tools-call bằng một MCP client thật (khuyến nghị `McpClient`/`HttpClientTransport` từ package `ModelContextProtocol`, cùng API dùng trong `tests/CrmCopilot.Tests/Mcp/McpToolProtocolTests.cs`, hoặc MCP Inspector) — không dùng `curl` thô cho JSON-RPC Streamable HTTP (cần đúng `Accept` header và session framing). Mọi response, kể cả lỗi, đều là một tool result JSON thường (`IsError=false` ở tầng MCP) theo đúng envelope `{status, traceId, sourceIds, data, error}` (docs/07_MCP_TOOL_CONTRACTS.md §3) — không dùng MCP-level `isError` cho lỗi nghiệp vụ.
 
 ### Secret hygiene
 
