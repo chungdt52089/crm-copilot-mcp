@@ -1,8 +1,9 @@
 # Checkpoint Status
 
 Baseline date: 2026-08-18  
-Current phase: Planning complete; implementation not started  
-Current checkpoint to open: **P0-01**
+Current phase: P0-03 implementation in progress on working tree (uncommitted); not yet built/tested/reviewed this session  
+Last synced: 2026-08-21  
+Current checkpoint to open: **P0-03**
 
 ## Git branch control
 
@@ -11,9 +12,9 @@ Current checkpoint to open: **P0-01**
 | Branch strategy        | `main → develop → feature/**` |
 | Stable/release branch  | `main`                        |
 | Integration branch     | `develop`                     |
-| Expected active branch | `feature/p0-01-scaffold`      |
-| Actual active branch   | `feature/p0-01-scaffold`      |
-| Base commit            | `afa47fd`                     |
+| Expected active branch | `feature/p0-03-rag-chroma`    |
+| Actual active branch   | `feature/p0-03-rag-chroma`    |
+| Base commit            | `efa9fdd`                     |
 | Merge target           | `develop`                     |
 | Current merge status   | NOT MERGED                    |
 
@@ -24,7 +25,7 @@ Current checkpoint to open: **P0-01**
 | P0-00 Documentation Baseline         | DONE        | PASS             | 16-file Markdown planning kit cross-checked                                                                                                                                      | Open P0-01 planning               |
 | P0-01 Repository & Solution Scaffold | DONE        | PASS             | restore PASS; build PASS with 0 warnings/errors; tests 3/3 PASS using Microsoft.Testing.Platform; three Kestrel health endpoints returned HTTP 200; secret hygiene PASS. | Open P0-02 planning                |
 | P0-02 Synthetic Data & Mock CRM API  | DONE        | PASS             | Dataset 12 customers / 26 interactions (seed 20260818), deterministic + golden-tested against checked-in JSON; restore/build PASS with 0 warnings/errors; tests 50/50 PASS; customer lookup/search (incl. 409 AMBIGUOUS_MATCH data-envelope contract) and interaction endpoints verified by test + manual curl; MockCrmGateway full error mapping and ValidateOnStart fail-fast verified; README `.env` wording corrected in final audit. | Open P0-03 planning               |
-| P0-03 Gemini Embedding & Chroma RAG  | NOT STARTED | —                | —                                                                                                                                                                                | Blocked by P0-01                  |
+| P0-03 Gemini Embedding & Chroma RAG  | REVIEW      | —                | Implementation present on `feature/p0-03-rag-chroma` working tree (uncommitted): embedding client, Chroma HTTP adapter, idempotent ingestion, retriever, unit tests + opt-in `LiveRagAcceptanceTests`. 2026-08-21 offline: `dotnet restore` PASS; `dotnet build CrmCopilot.slnx --no-restore` PASS, 0 warnings/0 errors; `dotnet test` 121/122 passed, 1 skipped (`LiveRagAcceptanceTests`, no live creds — expected). 2026-08-21 **mandatory live acceptance run** (real Gemini `gemini-embedding-001` + Chroma `1.5.9` local container, isolated collection `crm-copilot-knowledge-livetest`, dev collection `crm-copilot-knowledge` untouched): heartbeat OK; ingest run 1 (fresh collection) → 14 embedded, count=14; ingest run 2 → 0 embedded/14 unchanged (idempotent confirmed); query embedding L2 norm=1.000000; canonical query top-3 = `PRD-SAV-006M` (distance 0.472959, rank 1), `PRD-SAV-012M`, `TPL-EMAIL-MATURITY-01`; `dotnet test --filter-class LiveRagAcceptanceTests` 1/1 PASS. No API key or payload logged. Not yet: committed, reviewer verdict. | Request Product Owner/ChatGPT review verdict; do not start P0-04 |
 | P0-04 MCP Server Core Tools          | NOT STARTED | —                | —                                                                                                                                                                                | Blocked by P0-02/P0-03            |
 | P0-05 AI Host + MCP Client           | NOT STARTED | —                | —                                                                                                                                                                                | Blocked by P0-04                  |
 | P0-06 Conversation State             | NOT STARTED | —                | —                                                                                                                                                                                | Blocked by P0-05                  |
@@ -42,9 +43,9 @@ Allowed status values: `NOT STARTED`, `PLANNING`, `APPROVED`, `IN PROGRESS`, `RE
 | MCP packages         | Chưa thêm — hoãn tới P0-04 theo quyết định đã duyệt                           | 2026-08-19 (NuGet baseline vẫn `2.2.0`) |
 | MCP transport        | Streamable HTTP                                                               | Decision baseline                       |
 | Gemini chat          | `gemini-3.5-flash-lite`                                                       | Verify at P0-01/P0-05                   |
-| Gemini embedding     | `gemini-embedding-001`                                                        | Verify at P0-03                         |
-| Embedding dimension  | 768 + L2 normalized                                                           | Verify at P0-03                         |
-| Chroma version/image | TBD and pinned at P0-03                                                       | —                                       |
+| Gemini embedding     | `gemini-embedding-001`                                                        | Verified live 2026-08-21 (real API call) |
+| Embedding dimension  | 768 + L2 normalized (query norm=1.000000 observed live)                      | Verified live 2026-08-21                |
+| Chroma version/image | `chromadb/chroma:1.5.9`, distance metric `l2`, HTTP client (no official .NET package) | Verified live 2026-08-21          |
 | Dataset version/hash | seed=20260818, 12 customers / 26 interactions; SHA-256 customers.json=`14c500f9…6c4b2e9d8`, interactions.json=`52af5586…3a0a52da558` | 2026-08-19 |
 
 ## 3. Review log
