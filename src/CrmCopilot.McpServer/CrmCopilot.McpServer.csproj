@@ -14,4 +14,12 @@
     <InternalsVisibleTo Include="CrmCopilot.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Google.GenAI" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\data\knowledge\*.json" Link="data\knowledge\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

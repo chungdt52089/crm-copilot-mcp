@@ -90,7 +90,11 @@ ChatGPT không thể tự biết thay đổi trong phiên Claude nếu chưa đ�
 ## 7. Trạng thái ban đầu
 
 - P0-00 — Documentation Baseline: **DONE**
-- P0-01 — Repository & Solution Scaffold: **IN PROGRESS** (solution/health scaffold dựng xong; xem mục 8 và `docs/CHECKPOINT_STATUS.md`)
+- P0-01 — Repository & Solution Scaffold: **DONE**
+- P0-02 — Synthetic Data & Mock CRM API: **DONE**
+- P0-03 — Gemini Embedding & Chroma RAG: **IN PROGRESS** (implementation trên `feature/p0-03-rag-chroma` chưa commit; xem mục 8 "Gemini Embedding & Chroma RAG (P0-03)" và `docs/CHECKPOINT_STATUS.md`)
+
+Chi tiết evidence/verdict từng checkpoint xem `docs/CHECKPOINT_STATUS.md`.
 
 ## 8. Build & Run (P0-01 scaffold)
 
@@ -115,6 +119,8 @@ dotnet test tests/CrmCopilot.Tests/CrmCopilot.Tests.csproj --no-build --no-resto
 Chạy `dotnet build CrmCopilot.slnx` trước khi dùng `--no-build`. Mỗi service dùng port cố định qua `Properties/launchSettings.json` (profile `http`), không hard-code port trong `Program.cs`.
 
 `CrmCopilot.McpServer` yêu cầu biến môi trường `MOCKCRM_API_BASE_URL` (absolute URL, ví dụ `http://localhost:5100`) để khởi động — không có giá trị mặc định nào trong `appsettings.json`. Thiếu hoặc sai giá trị sẽ làm host fail fast ngay khi start thay vì âm thầm fallback. Xem mục "Secret hygiene" bên dưới để biết cách set giá trị này cho `dotnet run` cục bộ.
+
+Kể từ P0-03, chạy đầy đủ web host của `CrmCopilot.McpServer` (không dùng CLI verb `--ingest-knowledge`/`--query-knowledge`) còn yêu cầu thêm `GEMINI_API_KEY` và `CHROMA_BASE_URL` — cùng cơ chế fail-fast qua `ValidateOnStart()`. Hai CLI verb ở mục "Gemini Embedding & Chroma RAG (P0-03)" bên dưới **không** cần `MOCKCRM_API_BASE_URL`.
 
 ### Mock CRM API (P0-02)
 
@@ -142,6 +148,51 @@ dotnet run --project src/CrmCopilot.MockCrmApi --no-build -- --generate-dataset 
 ```
 
 Không tham số sẽ tái tạo đúng dataset đã checked-in (12 customers / ~26 interactions) vào `data/crm/`, độc lập với current working directory.
+
+### Gemini Embedding & Chroma RAG (P0-03)
+
+RAG code sống trong `CrmCopilot.McpServer` (`Knowledge/`), theo đúng phân vai kiến trúc — MCP Server sở hữu RAG orchestration (docs/02_ARCHITECTURE.md §3). Nguồn dữ liệu là `data/knowledge/products.json` (6 sản phẩm) và `data/knowledge/email-templates.json` (8 template), tổng 14 record, `synthetic: true`, `language: "vi"`; Chroma chỉ là index có thể xoá và tái tạo lại từ hai file này.
+
+**Chạy Chroma cục bộ** (image đã pin, volume đặt tên để dữ liệu tồn tại qua việc xoá container — chưa thêm `compose.yaml`, xem docs/02 §10):
+
+```powershell
+docker run -d --name crm-copilot-chroma -p 8000:8000 -v crm-copilot-chroma-data:/data chromadb/chroma:1.5.9
+curl http://localhost:8000/api/v2/heartbeat
+```
+
+**Ingest / query CLI** (dev-time only, không khởi động Kestrel, không cần `MOCKCRM_API_BASE_URL`):
+
+```powershell
+$env:GEMINI_API_KEY = "<giá trị thật, chỉ cục bộ, không commit>"
+$env:CHROMA_BASE_URL = "http://localhost:8000"
+
+dotnet run --project src/CrmCopilot.McpServer --no-build -- --ingest-knowledge
+dotnet run --project src/CrmCopilot.McpServer --no-build -- --query-knowledge "<câu truy vấn>"
+```
+
+`--ingest-knowledge` in ra số document/embedded/unchanged và số record trong collection sau khi ingest; chạy lại lần hai trên dữ liệu không đổi phải cho `0 embedded` (idempotent — không gọi lại Gemini). `--query-knowledge` in ra L2 norm của query embedding (kỳ vọng ~1.0) và top-3 `sourceId`/`distance` — dùng để hiệu chỉnh `KnowledgeRetrievalOptions.MaxDistance` (mặc định `1.2`, xem `src/CrmCopilot.McpServer/Knowledge/KnowledgeRetrievalOptions.cs`).
+
+**Mandatory live acceptance run** — bắt buộc trước khi báo P0-03 PASS (không chỉ là smoke test tuỳ chọn), tách biệt khỏi bộ test mặc định (`dotnet test` chạy offline, xem `LiveRagAcceptanceTests`, `[Fact(SkipUnless=...)]`, opt-in qua chính hai biến môi trường trên):
+
+```powershell
+$env:CHROMA_COLLECTION_NAME = "crm-copilot-knowledge-livetest"   # tuỳ chọn — cô lập khỏi collection dev mặc định
+dotnet run --project src/CrmCopilot.McpServer --no-build -- --ingest-knowledge   # lần 1: kỳ vọng 14 embedded, count=14
+dotnet run --project src/CrmCopilot.McpServer --no-build -- --ingest-knowledge   # lần 2: kỳ vọng 0 embedded/14 unchanged, count vẫn=14
+dotnet run --project src/CrmCopilot.McpServer --no-build -- --query-knowledge "Khách hàng quan tâm gửi tiết kiệm an toàn kỳ hạn 6 tháng, cần liên hệ lại."
+# kỳ vọng PRD-SAV-006M nằm trong top-3, L2 norm ~1.0
+```
+
+Nếu không có `GEMINI_API_KEY` thật hoặc không chạy được Chroma container tại thời điểm implement, đây là stop condition theo CLAUDE.md §9 — báo Product Owner thay vì chỉ dựa vào evidence offline.
+
+Để chỉ chạy `LiveRagAcceptanceTests` qua `dotnet test` (thay vì CLI ở trên), dùng đúng lệnh đã verify sau — dự án dùng Microsoft.Testing.Platform (`global.json`), không phải VSTest, nên các option filter là của chính `dotnet test`, truyền thẳng, **không** qua dấu `--`:
+
+```powershell
+dotnet test tests/CrmCopilot.Tests/CrmCopilot.Tests.csproj --no-build --no-restore --filter-class "CrmCopilot.Tests.Knowledge.LiveRagAcceptanceTests"
+```
+
+`--filter-class`/`--filter-method`/`--filter-namespace`/`--filter-query`/`--filter` (cú pháp VSTest) đều là option gốc của `dotnet test` cho project này. `--filter-query` cần đúng 4 segment `/assemblyName/namespace/class/method` — một pattern 3 segment như `*/LiveRagAcceptanceTests/*` sẽ không khớp gì và chạy "Zero tests ran" (exit 5), không phải lỗi cấu hình.
+
+**Rollback**: `git revert` cho code (không `reset --hard`); named volume `crm-copilot-chroma-data` không bao giờ bị xoá; nếu cần dọn collection test, chỉ xoá đúng `crm-copilot-knowledge-livetest` qua Chroma delete-collection endpoint — không đụng tới collection dev mặc định `crm-copilot-knowledge`.
 
 ### Secret hygiene
 

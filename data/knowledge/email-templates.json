@@ -1,0 +1,122 @@
+[
+  {
+    "sourceId": "kb:email-template:TPL-EMAIL-MATURITY-01",
+    "templateId": "TPL-EMAIL-MATURITY-01",
+    "intent": "SavingsFollowUp",
+    "tone": "ProfessionalWarm",
+    "subjectPattern": "Thông tin tham khảo về {{PRODUCT_NAME}}",
+    "bodyGuidance": [
+      "Nhắc lại nhu cầu đã trao đổi",
+      "Chỉ nêu lợi ích có trong product source",
+      "Mời khách hàng phản hồi thời gian phù hợp"
+    ],
+    "language": "vi",
+    "synthetic": true,
+    "version": "1.0"
+  },
+  {
+    "sourceId": "kb:email-template:TPL-EMAIL-FOLLOWUP-GENERIC-01",
+    "templateId": "TPL-EMAIL-FOLLOWUP-GENERIC-01",
+    "intent": "GenericFollowUp",
+    "tone": "ProfessionalWarm",
+    "subjectPattern": "Theo dõi trao đổi gần đây với {{CUSTOMER_NAME}}",
+    "bodyGuidance": [
+      "Nhắc lại nội dung đã trao đổi trong lần liên hệ gần nhất",
+      "Hỏi thăm nhu cầu hiện tại của khách hàng",
+      "Mời khách hàng phản hồi thời gian phù hợp để trao đổi tiếp"
+    ],
+    "language": "vi",
+    "synthetic": true,
+    "version": "1.0"
+  },
+  {
+    "sourceId": "kb:email-template:TPL-EMAIL-PRODUCT-INTRO-CARD-01",
+    "templateId": "TPL-EMAIL-PRODUCT-INTRO-CARD-01",
+    "intent": "CardIntroduction",
+    "tone": "ProfessionalWarm",
+    "subjectPattern": "Giới thiệu {{PRODUCT_NAME}} phù hợp với nhu cầu của bạn",
+    "bodyGuidance": [
+      "Giới thiệu ngắn gọn sản phẩm thẻ phù hợp với nhu cầu chi tiêu của khách hàng",
+      "Chỉ nêu lợi ích có trong product source",
+      "Mời khách hàng phản hồi nếu quan tâm tìm hiểu thêm"
+    ],
+    "language": "vi",
+    "synthetic": true,
+    "version": "1.0"
+  },
+  {
+    "sourceId": "kb:email-template:TPL-EMAIL-PRODUCT-INTRO-LOAN-01",
+    "templateId": "TPL-EMAIL-PRODUCT-INTRO-LOAN-01",
+    "intent": "LoanIntroduction",
+    "tone": "ProfessionalWarm",
+    "subjectPattern": "Thông tin tham khảo về {{PRODUCT_NAME}}",
+    "bodyGuidance": [
+      "Giới thiệu ngắn gọn sản phẩm vay phù hợp với nhu cầu đã trao đổi",
+      "Chỉ nêu lợi ích có trong product source",
+      "Mời khách hàng phản hồi thời gian phù hợp để trao đổi hồ sơ"
+    ],
+    "language": "vi",
+    "synthetic": true,
+    "version": "1.0"
+  },
+  {
+    "sourceId": "kb:email-template:TPL-EMAIL-PRODUCT-INTRO-INSURANCE-01",
+    "templateId": "TPL-EMAIL-PRODUCT-INTRO-INSURANCE-01",
+    "intent": "InsuranceIntroduction",
+    "tone": "ProfessionalWarm",
+    "subjectPattern": "Thông tin tham khảo về {{PRODUCT_NAME}}",
+    "bodyGuidance": [
+      "Giới thiệu ngắn gọn gói bảo hiểm phù hợp với nhu cầu bảo vệ tài chính",
+      "Chỉ nêu quyền lợi có trong product source",
+      "Mời khách hàng phản hồi thời gian phù hợp để được tư vấn thêm"
+    ],
+    "language": "vi",
+    "synthetic": true,
+    "version": "1.0"
+  },
+  {
+    "sourceId": "kb:email-template:TPL-EMAIL-THANKYOU-01",
+    "templateId": "TPL-EMAIL-THANKYOU-01",
+    "intent": "ThankYouAfterMeeting",
+    "tone": "ProfessionalWarm",
+    "subjectPattern": "Cảm ơn {{CUSTOMER_NAME}} đã dành thời gian trao đổi",
+    "bodyGuidance": [
+      "Cảm ơn khách hàng đã dành thời gian trao đổi",
+      "Tóm tắt ngắn gọn nội dung đã thống nhất",
+      "Nêu bước tiếp theo nếu có"
+    ],
+    "language": "vi",
+    "synthetic": true,
+    "version": "1.0"
+  },
+  {
+    "sourceId": "kb:email-template:TPL-EMAIL-MATURITY-REMINDER-12M-01",
+    "templateId": "TPL-EMAIL-MATURITY-REMINDER-12M-01",
+    "intent": "MaturityReminder12Month",
+    "tone": "ProfessionalWarm",
+    "subjectPattern": "Nhắc lịch đáo hạn sản phẩm {{PRODUCT_NAME}}",
+    "bodyGuidance": [
+      "Nhắc khách hàng về thời điểm đáo hạn sắp tới",
+      "Chỉ nêu lợi ích tái tục có trong product source",
+      "Mời khách hàng phản hồi thời gian phù hợp để trao đổi phương án tiếp theo"
+    ],
+    "language": "vi",
+    "synthetic": true,
+    "version": "1.0"
+  },
+  {
+    "sourceId": "kb:email-template:TPL-EMAIL-WELCOME-01",
+    "templateId": "TPL-EMAIL-WELCOME-01",
+    "intent": "WelcomeNewCustomer",
+    "tone": "ProfessionalWarm",
+    "subjectPattern": "Chào mừng {{CUSTOMER_NAME}} trở thành khách hàng",
+    "bodyGuidance": [
+      "Chào mừng khách hàng mới",
+      "Giới thiệu ngắn gọn kênh liên hệ hỗ trợ",
+      "Mời khách hàng phản hồi nếu cần hỗ trợ thêm"
+    ],
+    "language": "vi",
+    "synthetic": true,
+    "version": "1.0"
+  }
+]
