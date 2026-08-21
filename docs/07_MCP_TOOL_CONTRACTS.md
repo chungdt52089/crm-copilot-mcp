@@ -123,23 +123,24 @@ Input:
 
 Rules:
 
-- `query` required, max length hợp lý (ví dụ 1000 chars).
-- `topK` default 3, max 5.
-- Filter chỉ nhận allowlisted document types.
-- Không trả document nếu score dưới threshold đã hiệu chỉnh ở P0-03; threshold phải là config và có test.
+- `query` required, tối đa 1000 ký tự (giới hạn cứng ở tool, không phải ví dụ minh hoạ — nhỏ hơn giới hạn phòng vệ 2000 ký tự nội bộ của `KnowledgeRetriever`).
+- `topK` default 3, phạm vi 1-5 (nhỏ hơn giới hạn phòng vệ 1-20 nội bộ của `KnowledgeRetriever`).
+- Filter chỉ nhận allowlisted document types (`product`, `email_template`).
+- Không trả document nếu distance vượt quá threshold đã hiệu chỉnh ở P0-03 (`KnowledgeRetrievalOptions.MaxDistance`, không đổi ở P0-04); threshold là config và có test.
 
-Output item:
+Output item (đã sửa ở P0-04 cho khớp đúng data model P0-03 — bản gốc ở trên có `title`/`score` không tồn tại trong `KnowledgeSourceMetadata`/`KnowledgeMatch` thật; P0-04 không tự bịa `title` và không tự quy đổi Chroma distance thành similarity score):
 
 ```json
 {
   "sourceId": "kb:product:PRD-SAV-006M",
   "documentType": "product",
   "productCode": "PRD-SAV-006M",
-  "title": "Tiền gửi kỳ hạn 6 tháng",
   "content": "...",
-  "score": 0.82
+  "distance": 0.47
 }
 ```
+
+`distance` là khoảng cách Chroma thô cho metric đã cấu hình (l2) — **lower is better** (càng nhỏ càng liên quan), không phải một "similarity score"/"accuracy" tự chế. Không có field `title` — `KnowledgeSourceMetadata` (P0-03) không có field hiển thị tên; nếu cần, đây là một thay đổi schema riêng, ngoài phạm vi P0-04.
 
 Không hard-code interpretation score là “accuracy”. Score chỉ dùng ranking/threshold nội bộ.
 

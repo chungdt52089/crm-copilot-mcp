@@ -377,7 +377,10 @@ Checkpoint goals:
 - Verify and pin the current compatible official MCP package versions.
 - Implement the minimum required read tools:
   - get_customer;
-  - get_interactions.
+  - get_interactions;
+  - search_product_knowledge (docs/04_P0_CHECKPOINTS.md, docs/07_MCP_TOOL_CONTRACTS.md and
+    docs/05_IMPLEMENTATION_PLAN_9_DAYS.md's Day-4 row all include this as a required P0-04 tool;
+    this list previously omitted it, which was a documentation gap, not an approved scope cut).
 - Define clear tool names, descriptions, input schemas, result schemas, and error contracts.
 - Make McpServer access CRM data through an HTTP gateway/client to MockCrmApi.
 - Do not let McpServer read synthetic JSON files directly.
@@ -391,8 +394,10 @@ Required tests/evidence to plan:
 - Tool discovery exposes the expected tools.
 - Direct invocation of get_customer.
 - Direct invocation of get_interactions.
+- Direct invocation of search_product_knowledge.
 - Invalid input and not-found behavior.
 - Mock CRM upstream failure behavior.
+- RAG/knowledge-retrieval upstream failure behavior.
 - MCP HTTP endpoint/transport smoke test.
 - Existing tests remain green.
 - Offline default tests.

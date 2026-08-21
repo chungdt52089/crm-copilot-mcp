@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <PackageReference Include="Google.GenAI" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
   </ItemGroup>
 
   <ItemGroup>
