@@ -215,6 +215,71 @@ curl http://localhost:5090/health
 
 Xác minh tool discovery/tools-call bằng một MCP client thật (khuyến nghị `McpClient`/`HttpClientTransport` từ package `ModelContextProtocol`, cùng API dùng trong `tests/CrmCopilot.Tests/Mcp/McpToolProtocolTests.cs`, hoặc MCP Inspector) — không dùng `curl` thô cho JSON-RPC Streamable HTTP (cần đúng `Accept` header và session framing). Mọi response, kể cả lỗi, đều là một tool result JSON thường (`IsError=false` ở tầng MCP) theo đúng envelope `{status, traceId, sourceIds, data, error}` (docs/07_MCP_TOOL_CONTRACTS.md §3) — không dùng MCP-level `isError` cho lỗi nghiệp vụ.
 
+### AI Host + MCP Client (P0-05)
+
+`CrmCopilot.Web` là AI Host thật: Gemini chat (`gemini-3.5-flash-lite`) chọn tool qua function calling, Host xác thực rồi gọi qua **MCP Client thật** (`ModelContextProtocol` package) tới `CrmCopilot.McpServer` — Web không bao giờ gọi trực tiếp `CrmCopilot.MockCrmApi` hoặc đọc JSON CRM (không có package/config nào cho phép việc đó). Vòng lặp tool bị giới hạn **tối đa 3 lần gọi MCP tool** cho mỗi lượt (Gemini có thể được gọi thêm một lần nữa, lần thứ 4, chỉ để xem kết quả tool thứ 3 và quyết định đã xong hay chưa — không có lần gọi MCP thứ 4). Tool ngoài danh sách 3 tool đã duyệt (`get_customer`, `get_interactions`, `search_product_knowledge`) không bao giờ được đưa vào schema gửi cho Gemini, kể cả khi MCP Server có expose thêm tool khác.
+
+**PII trước khi gọi Gemini:** tin nhắn tiếng Việt thô bị từ chối thẳng (không gọi Gemini/MCP) nếu chứa email, số điện thoại, số tài khoản/CCCD hoặc địa chỉ dạng free-text; tin nhắn có ý định tra cứu khách hàng (chứa từ khóa CRM hoặc một cụm tên viết hoa liên tiếp kiểu "Nguyễn Minh Anh") mà không kèm mã khách hàng hợp lệ (`CUS-####`) cũng bị từ chối, yêu cầu nhập đúng mã khách hàng. Đây là cơ chế **reject-gate best-effort** (không phải masking có placeholder/restore — đó là phạm vi P0-07); ưu tiên từ chối nhầm hơn là để lọt PII. Kết quả tool trả về cho Gemini cũng được tối giản: `get_customer`/`get_interactions` chỉ gửi lại `{status, sourceIds}` (không bao giờ gửi `CustomerDto`/`InteractionDto` — có PII), còn `search_product_knowledge` gửi lại toàn bộ nội dung khớp vì không chứa PII khách hàng.
+
+Chạy đầy đủ 4 process (McpServer/MockCrmApi/Chroma như P0-03/P0-04, cộng Web):
+
+```powershell
+# Terminal 1 (P0-02)
+dotnet run --project src/CrmCopilot.MockCrmApi --launch-profile http --no-build
+
+# Terminal 2: Chroma đã chạy theo P0-03 (ingest vào collection mặc định crm-copilot-knowledge
+# trước khi test luồng RAG — xem "Mandatory live acceptance run" bên dưới)
+
+# Terminal 3 (P0-04)
+$env:MOCKCRM_API_BASE_URL = "http://localhost:5100"
+$env:GEMINI_API_KEY = "<giá trị thật, chỉ cục bộ, không commit>"
+$env:CHROMA_BASE_URL = "http://localhost:8000"
+dotnet run --project src/CrmCopilot.McpServer --launch-profile http --no-build
+
+# Terminal 4 (P0-05) — Web cần McpServer đã sẵn sàng: handshake MCP là "lazy" (chỉ xảy ra ở
+# request /api/chat đầu tiên, không phải lúc Web start), nên Web start được ngay cả khi McpServer
+# chưa lên — nhưng request /api/chat đầu tiên sẽ lỗi MCP_UNAVAILABLE nếu McpServer chưa sẵn sàng.
+$env:MCPSERVER_BASE_URL = "http://localhost:5090"
+$env:GEMINI_API_KEY = "<giá trị thật, chỉ cục bộ, không commit>"
+dotnet run --project src/CrmCopilot.Web --launch-profile http --no-build
+
+curl http://localhost:5081/health
+```
+
+Gọi thử `/api/chat`:
+
+```powershell
+Invoke-RestMethod -Method Post http://localhost:5081/api/chat `
+  -Body (@{ message = "Tìm khách hàng CUS-0001" } | ConvertTo-Json) -ContentType "application/json"
+```
+
+Response luôn là JSON `{reply, status, sourceIds, toolTrace, data, error}` — status HTTP tương ứng: `200` (success), `404` (not_found), `409` (ambiguous, hoặc đã đạt giới hạn tool-loop), `400` (input/tool-selection không hợp lệ — PII_REJECTED, CUSTOMER_ID_REQUIRED, UNKNOWN_TOOL, v.v.), `503` (MCP/CRM/RAG upstream unavailable), `502` (Gemini/MCP protocol lỗi hoặc lỗi nội bộ).
+
+**Mandatory live acceptance gate** — bắt buộc trước khi báo P0-05 PASS (giống P0-03), tách biệt khỏi test suite mặc định (`dotnet test` chạy offline với `FakeGeminiChatClient` + MCP protocol thật qua fakes, không cần key thật):
+
+```powershell
+# 1) Ingest collection mặc định (không set CHROMA_COLLECTION_NAME → mặc định crm-copilot-knowledge)
+$env:GEMINI_API_KEY = "<giá trị thật>"
+$env:CHROMA_BASE_URL = "http://localhost:8000"
+dotnet run --project src/CrmCopilot.McpServer --no-build -- --ingest-knowledge
+
+# 2) get_customer thật
+Invoke-RestMethod -Method Post http://localhost:5081/api/chat -Body (@{message="Tìm khách hàng CUS-0001"} | ConvertTo-Json) -ContentType "application/json"
+# kỳ vọng: toolTrace có get_customer/success, data.customer.id == "CUS-0001"
+
+# 3) get_interactions thật
+Invoke-RestMethod -Method Post http://localhost:5081/api/chat -Body (@{message="Xem các tương tác gần đây của CUS-0001"} | ConvertTo-Json) -ContentType "application/json"
+# kỳ vọng: toolTrace có get_interactions/success, data.interactions không rỗng
+
+# 4) search_product_knowledge thật, dùng đúng collection vừa ingest
+Invoke-RestMethod -Method Post http://localhost:5081/api/chat -Body (@{message="Khách hàng CUS-0001 quan tâm gửi tiết kiệm, gợi ý sản phẩm phù hợp"} | ConvertTo-Json) -ContentType "application/json"
+# kỳ vọng: toolTrace có search_product_knowledge/success, sourceIds chứa kb:product:PRD-SAV-006M
+```
+
+Ghi lại `toolTrace` đầy đủ (tool name/status/traceId/durationMs) của cả 3 bước làm evidence — không dùng `curl` thô cho `/api/chat` (JSON body cần đúng `Content-Type`).
+
+**Giới hạn đã biết:** heuristic CRM-intent (từ khóa + cụm tên viết hoa liên tiếp) là best-effort — có thể từ chối nhầm câu hỏi hợp lệ (chấp nhận được) và có thể bỏ sót một số cách diễn đạt tên hiếm gặp không kèm từ khóa/không viết hoa liên tiếp; loại bỏ hoàn toàn rủi ro này cần hạ tầng masking/NER thật của P0-07. RM nên tham chiếu khách hàng bằng mã (`CUS-0001`) trong chat, không gõ tên đầy đủ.
+
 ### Secret hygiene
 
 - `.env.example` chỉ là **configuration template** liệt kê tên biến môi trường cần thiết theo từng checkpoint (P0-02/P0-03/P0-05). Repo hiện **không có code hoặc package nào tự động đọc file `.env`** — copy `.env.example` thành `.env` (đã bị `.gitignore` chặn) chỉ tạo một bản ghi chú giá trị cục bộ cho riêng bạn; `dotnet run` sẽ **không** tự đọc được các giá trị đó.
