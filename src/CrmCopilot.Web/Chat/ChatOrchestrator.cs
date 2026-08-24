@@ -10,19 +10,28 @@ using GenAiTool = Google.GenAI.Types.Tool;
 namespace CrmCopilot.Web.Chat;
 
 /// <summary>
-/// P0-05 bounded Gemini tool-calling loop (plan §6). The cap (<see cref="MaxMcpCalls"/> = 3)
-/// applies only to MCP tool calls — Gemini may be called one more time than that (up to 4) so it
-/// can see the 3rd tool's result and decide whether it's done. No PII round-trips to Gemini (plan
-/// D1): every non-success MCP result short-circuits the loop deterministically; every success
-/// result's FunctionResponse back to Gemini is minimized (customer/interaction tools) or the full
-/// non-PII knowledge content (search_product_knowledge).
+/// P0-05 bounded Gemini tool-calling loop (plan §6), extended in P0-06 with conversation-state
+/// resolution (docs/02_ARCHITECTURE.md §6). The cap (<see cref="MaxMcpCalls"/> = 3) applies only to
+/// MCP tool calls — Gemini may be called one more time than that (up to 4) so it can see the 3rd
+/// tool's result and decide whether it's done. No PII round-trips to Gemini (plan D1): every
+/// non-success MCP result short-circuits the loop deterministically; every success result's
+/// FunctionResponse back to Gemini is minimized (customer/interaction tools) or the full non-PII
+/// knowledge content (search_product_knowledge).
+///
+/// P0-06: a resolvable follow-up ("khách hàng này") never depends on Gemini's own judgement for
+/// correctness — the active <c>CurrentCustomerId</c> is both hinted to Gemini via the system
+/// instruction AND deterministically substituted into a get_customer/get_interactions call's
+/// arguments whenever the model's own call omits <c>customerId</c>, so T06 stays deterministic
+/// regardless of the model's exact wording.
 /// </summary>
 internal sealed class ChatOrchestrator(
     IGeminiChatClient chatClient,
     IMcpClientProvider mcpClientProvider,
+    IConversationStateStore stateStore,
     ILogger<ChatOrchestrator> logger)
 {
     private const int MaxMcpCalls = 3;
+    private const int MaxRecentMessages = 8;
 
     private const string SystemInstructionText =
         "Bạn là trợ lý CRM tiếng Việt dành cho Relationship Manager (RM). " +
@@ -42,13 +51,22 @@ internal sealed class ChatOrchestrator(
     private const string NameLookupNotSupportedMessage =
         "Tra cứu khách hàng qua chat chỉ hỗ trợ theo mã khách hàng (ví dụ CUS-0001), không hỗ trợ theo tên.";
 
-    public async Task<ChatResponse> HandleAsync(string message, CancellationToken cancellationToken)
+    public async Task<ChatResponse> HandleAsync(string sessionId, string message, CancellationToken cancellationToken)
     {
-        var guardResult = InputGuard.Validate(message);
+        if (!SessionIdValidator.TryNormalize(sessionId, out var normalizedSessionId))
+        {
+            return Error(ChatTurnErrorCode.InvalidArgument, SessionIdValidator.InvalidSessionIdMessage, retryable: false);
+        }
+
+        var state = stateStore.GetOrCreate(normalizedSessionId);
+
+        var guardResult = InputGuard.Validate(message, state.CurrentCustomerId);
         if (!guardResult.IsAllowed)
         {
             return Error(guardResult.ErrorCode!, guardResult.ErrorMessage!, retryable: false);
         }
+
+        state = stateStore.Update(normalizedSessionId, s => AppendMessage(s, message));
 
         McpClient client;
         IList<McpClientTool> discovered;
@@ -79,7 +97,7 @@ internal sealed class ChatOrchestrator(
         };
         var config = new GenerateContentConfig
         {
-            SystemInstruction = new Content { Parts = [Part.FromText(SystemInstructionText)] },
+            SystemInstruction = new Content { Parts = [Part.FromText(BuildSystemInstruction(state.CurrentCustomerId))] },
             Tools = [new GenAiTool { FunctionDeclarations = functionDeclarations }],
             Temperature = 0.1f,
         };
@@ -127,6 +145,15 @@ internal sealed class ChatOrchestrator(
             if (!toolsByName.ContainsKey(callName))
             {
                 return Error(ChatTurnErrorCode.UnknownTool, UnknownToolMessage, retryable: false, sourceIds, trace);
+            }
+
+            // P0-06 deterministic resolution: if this call needs a customerId and Gemini's own
+            // call omitted it, fill it in from the session's active customer before any downstream
+            // check/dispatch sees the args — correctness never depends on Gemini's wording.
+            if (RequiresCustomerId(callName) && !TryGetString(callArgs, "customerId", out _) &&
+                state.CurrentCustomerId is { } fallbackCustomerId)
+            {
+                callArgs = WithCustomerId(callArgs, fallbackCustomerId);
             }
 
             if (callName == ApprovedMcpToolNames.GetCustomer && !TryGetString(callArgs, "customerId", out _))
@@ -188,10 +215,77 @@ internal sealed class ChatOrchestrator(
 
             sourceIds.AddRange(parsed.SourceIds);
             accumulatedData = MergeData(accumulatedData, callName, parsed.Data);
+            state = stateStore.Update(normalizedSessionId, s => UpdateStateAfterToolCall(s, callName, callArgs, accumulatedData));
 
             var minimized = Minimize(callName, callArgs, parsed);
             contents.Add(new Content { Role = "user", Parts = [Part.FromFunctionResponse(callName, minimized)] });
         }
+    }
+
+    private static string BuildSystemInstruction(string? currentCustomerId) =>
+        currentCustomerId is null
+            ? SystemInstructionText
+            : SystemInstructionText +
+              $" Khách hàng đang được thảo luận trong phiên hội thoại này có mã {currentCustomerId}; " +
+              "nếu người dùng dùng cụm như \"khách hàng này\" hoặc không nêu lại mã khách hàng, hãy dùng đúng mã này khi gọi tool.";
+
+    private static bool RequiresCustomerId(string toolName) =>
+        toolName is ApprovedMcpToolNames.GetCustomer or ApprovedMcpToolNames.GetInteractions;
+
+    private static Dictionary<string, object> WithCustomerId(IDictionary<string, object>? args, string customerId)
+    {
+        var merged = args is null ? new Dictionary<string, object>() : new Dictionary<string, object>(args);
+        merged["customerId"] = customerId;
+        return merged;
+    }
+
+    /// <summary>P0-06: redact-then-append (docs/02_ARCHITECTURE.md §6 — no raw email/phone/account
+    /// in stored state), keeping only the newest <see cref="MaxRecentMessages"/> entries.</summary>
+    private static ConversationState AppendMessage(ConversationState state, string rawMessage)
+    {
+        var sanitized = ConversationMessageSanitizer.Sanitize(rawMessage);
+        var updated = new List<string>(state.RecentSanitizedMessages) { sanitized };
+        if (updated.Count > MaxRecentMessages)
+        {
+            updated.RemoveAt(0);
+        }
+        return state with { RecentSanitizedMessages = updated, UpdatedAtUtc = DateTime.UtcNow };
+    }
+
+    private static ConversationState UpdateStateAfterToolCall(
+        ConversationState state, string toolName, IDictionary<string, object>? callArgs, ChatResponseData accumulatedData)
+    {
+        var now = DateTime.UtcNow;
+
+        if (toolName == ApprovedMcpToolNames.GetCustomer && accumulatedData.Customer is { } customer)
+        {
+            return state with { CurrentCustomerId = customer.Id, LastIntent = toolName, UpdatedAtUtc = now };
+        }
+
+        if (toolName == ApprovedMcpToolNames.GetInteractions && TryGetString(callArgs, "customerId", out var customerId))
+        {
+            return state with
+            {
+                CurrentCustomerId = customerId,
+                LastInteractionIds = accumulatedData.Interactions?.Select(interaction => interaction.Id).ToList()
+                    ?? state.LastInteractionIds,
+                LastIntent = toolName,
+                UpdatedAtUtc = now,
+            };
+        }
+
+        if (toolName == ApprovedMcpToolNames.SearchProductKnowledge)
+        {
+            return state with
+            {
+                RetrievedSourceIds = accumulatedData.KnowledgeMatches?.Select(match => match.SourceId).ToList()
+                    ?? state.RetrievedSourceIds,
+                LastIntent = toolName,
+                UpdatedAtUtc = now,
+            };
+        }
+
+        return state;
     }
 
     private static ChatResponseData MergeData(ChatResponseData accumulated, string toolName, JsonElement? data) => toolName switch

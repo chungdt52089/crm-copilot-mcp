@@ -71,6 +71,36 @@ public class InputGuardTests
         Assert.True(result.IsAllowed);
     }
 
+    // --- P0-06: keyword-only follow-up resolution against conversation state ---
+
+    [Fact]
+    public void Validate_CrmKeywordFollowUp_WithActiveCustomer_Allowed()
+    {
+        var result = InputGuard.Validate("Khách hàng này có tương tác gì gần đây?", currentCustomerId: "CUS-0001");
+
+        Assert.True(result.IsAllowed);
+    }
+
+    [Fact]
+    public void Validate_CrmKeywordFollowUp_WithoutActiveCustomer_RejectedAsCustomerIdRequired()
+    {
+        var result = InputGuard.Validate("Khách hàng này có tương tác gì gần đây?", currentCustomerId: null);
+
+        Assert.False(result.IsAllowed);
+        Assert.Equal(ChatTurnErrorCode.CustomerIdRequired, result.ErrorCode);
+    }
+
+    [Fact]
+    public void Validate_CapitalizedNameRun_WithActiveCustomer_StillRejected()
+    {
+        // A literal name mention is a raw-name leak risk, not a pronoun follow-up — always
+        // rejected regardless of session state, even when a customer is already active.
+        var result = InputGuard.Validate("Nguyễn Văn A cần được gọi lại", currentCustomerId: "CUS-0001");
+
+        Assert.False(result.IsAllowed);
+        Assert.Equal(ChatTurnErrorCode.CustomerIdRequired, result.ErrorCode);
+    }
+
     [Fact]
     public void Validate_BlankMessage_RejectedAsInvalidArgument()
     {

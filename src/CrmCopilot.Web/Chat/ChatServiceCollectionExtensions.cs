@@ -34,6 +34,8 @@ public static class ChatServiceCollectionExtensions
 
         services.AddSingleton<IMcpClientProvider, McpClientProvider>();
 
+        services.AddSingleton<IConversationStateStore, InMemoryConversationStateStore>();
+
         services.AddScoped<ChatOrchestrator>();
 
         return services;

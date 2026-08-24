@@ -16,9 +16,15 @@ namespace CrmCopilot.Web.Chat;
 /// Mechanism 2 (CRM-intent-without-ID): closes the raw-customer-name leak. If the message looks
 /// customer/interaction-oriented (a CRM keyword, or a run of 2+ consecutive capitalized word
 /// tokens — a crude Vietnamese full-name detector) but does not contain a valid CUS-#### token,
-/// reject with CUSTOMER_ID_REQUIRED. A generic message with no CRM-intent signal at all (e.g. a
-/// product-knowledge question) is allowed through unchanged. Both mechanisms are explicitly
-/// best-effort — over-rejection is the accepted failure direction, not under-rejection.
+/// reject with CUSTOMER_ID_REQUIRED — UNLESS the signal is keyword-only (e.g. "khách hàng này")
+/// and the caller supplies an active <c>currentCustomerId</c> from P0-06 conversation state, in
+/// which case the message is allowed through as a resolvable follow-up (docs/02_ARCHITECTURE.md
+/// §6: "khách hàng này" with no CurrentCustomerId must ask for clarification, not guess — with one
+/// it should NOT ask). A capitalized-name-run signal is always rejected regardless of session
+/// state — a literal name mention is a raw-name leak risk, not a pronoun follow-up. A generic
+/// message with no CRM-intent signal at all (e.g. a product-knowledge question) is allowed through
+/// unchanged. Both mechanisms are explicitly best-effort — over-rejection is the accepted failure
+/// direction, not under-rejection.
 /// </summary>
 internal static class InputGuard
 {
@@ -26,16 +32,7 @@ internal static class InputGuard
         "Vui lòng không nhập email, số điện thoại, số tài khoản/CCCD hoặc địa chỉ trực tiếp vào khung chat. Hãy dùng mã khách hàng (ví dụ CUS-0001).";
 
     private const string CustomerIdRequiredMessage =
-        "Vui lòng cung cấp mã khách hàng (ví dụ CUS-0001) thay vì tên hoặc mô tả khách hàng.";
-
-    private static readonly Regex EmailPattern = new(@"[^\s@]+@[^\s@]+\.[^\s@]+", RegexOptions.Compiled);
-
-    private static readonly Regex PhonePattern =
-        new(@"(?<!\d)(\+84|0)[\s.-]?\d(?:[\s.-]?\d){8,9}(?!\d)", RegexOptions.Compiled);
-
-    // 9+ consecutive digits — covers both a CCCD-shaped 12-digit number and this dataset's
-    // accountReference (also a plain digit string, e.g. "000000000001" for CUS-0001).
-    private static readonly Regex DigitRunPattern = new(@"\d{9,}", RegexOptions.Compiled);
+        "Vui lòng cung cấp mã khách hàng (ví dụ CUS-0001).";
 
     private static readonly Regex AnyDigitPattern = new(@"\d", RegexOptions.Compiled);
 
@@ -57,7 +54,7 @@ internal static class InputGuard
 
     private const int MaxMessageLength = 2000;
 
-    public static InputGuardResult Validate(string message)
+    public static InputGuardResult Validate(string message, string? currentCustomerId = null)
     {
         if (string.IsNullOrWhiteSpace(message))
         {
@@ -69,18 +66,35 @@ internal static class InputGuard
             return InputGuardResult.Reject(ChatTurnErrorCode.InvalidArgument, $"Tin nhắn vượt quá {MaxMessageLength} ký tự.");
         }
 
-        if (EmailPattern.IsMatch(message) || PhonePattern.IsMatch(message) ||
-            DigitRunPattern.IsMatch(message) || LooksLikeAddress(message))
+        if (PiiPatterns.Email.IsMatch(message) || PiiPatterns.Phone.IsMatch(message) ||
+            PiiPatterns.DigitRun.IsMatch(message) || LooksLikeAddress(message))
         {
             return InputGuardResult.Reject(ChatTurnErrorCode.PiiRejected, PiiRejectedMessage);
         }
 
         var containsValidCustomerId = CustomerIdPattern.IsMatch(message);
-        var hasCrmIntentSignal = ContainsCrmIntentKeyword(message) || CapitalizedRunPattern.IsMatch(message);
-
-        if (hasCrmIntentSignal && !containsValidCustomerId)
+        if (!containsValidCustomerId)
         {
-            return InputGuardResult.Reject(ChatTurnErrorCode.CustomerIdRequired, CustomerIdRequiredMessage);
+            // A literal name mention is always rejected, regardless of session state — this is a
+            // raw-name leak risk, not a pronoun follow-up like "khách hàng này".
+            if (CapitalizedRunPattern.IsMatch(message))
+            {
+                return InputGuardResult.Reject(ChatTurnErrorCode.CustomerIdRequired, CustomerIdRequiredMessage);
+            }
+
+            if (ContainsCrmIntentKeyword(message))
+            {
+                // A keyword-only follow-up ("khách hàng này", "tương tác gần đây") is resolvable
+                // against P0-06 conversation state when a customer is already active in this
+                // session; the Host substitutes the ID downstream. With no active customer, ask
+                // for clarification instead of guessing (docs/02_ARCHITECTURE.md §6).
+                if (currentCustomerId is not null)
+                {
+                    return InputGuardResult.Ok();
+                }
+
+                return InputGuardResult.Reject(ChatTurnErrorCode.CustomerIdRequired, CustomerIdRequiredMessage);
+            }
         }
 
         return InputGuardResult.Ok();
