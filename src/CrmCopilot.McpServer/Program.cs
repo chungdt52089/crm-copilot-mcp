@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using CrmCopilot.McpServer.Crm;
+using CrmCopilot.McpServer.Email;
 using CrmCopilot.McpServer.Knowledge;
 using CrmCopilot.McpServer.Knowledge.Ingestion;
 using Microsoft.Extensions.Options;
@@ -21,10 +22,12 @@ builder.Services.AddHealthChecks();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddCrmGateway(builder.Configuration);
 builder.Services.AddKnowledgeRetrieval(builder.Configuration);
+builder.Services.AddEmailGeneration();
 builder.Services.AddMcpServer()
     .WithHttpTransport(options => options.SessionMode = HttpServerSessionMode.Stateless)
     .WithTools<CustomerTools>()
-    .WithTools<KnowledgeTools>();
+    .WithTools<KnowledgeTools>()
+    .WithTools<EmailTools>();
 
 var app = builder.Build();
 

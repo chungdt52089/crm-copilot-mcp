@@ -5,7 +5,9 @@ using CrmCopilot.Contracts.Knowledge;
 using CrmCopilot.Contracts.Knowledge.Exceptions;
 using CrmCopilot.Contracts.Mcp;
 using CrmCopilot.McpServer;
+using CrmCopilot.McpServer.Email;
 using CrmCopilot.Tests.Crm.TestSupport;
+using CrmCopilot.Tests.Email.TestSupport;
 using CrmCopilot.Tests.Knowledge.TestSupport;
 using CrmCopilot.Tests.TestSupport;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -31,10 +33,11 @@ public class McpToolProtocolTests
         "CUS-0001", "Nguyễn Minh Anh", "test@example.com", "0900000000", "ACC-0001",
         "Priority", "Hà Nội", "vi", "RM-0001", "Active", true, DateTime.UtcNow);
 
-    private static (WebApplicationFactory<McpServerEntryPoint> Factory, FakeCrmGateway Crm, FakeKnowledgeRetriever Knowledge) CreateFactory()
+    private static (WebApplicationFactory<McpServerEntryPoint> Factory, FakeCrmGateway Crm, FakeKnowledgeRetriever Knowledge, FakeEmailDraftGenerator Email) CreateFactory()
     {
         var crmGateway = new FakeCrmGateway();
         var knowledgeRetriever = new FakeKnowledgeRetriever();
+        var emailDraftGenerator = new FakeEmailDraftGenerator();
 
         var factory = McpServerTestHost.CreateWithMockCrmApiBaseUrl(McpServerTestHost.ValidMockCrmApiBaseUrl)
             .WithWebHostBuilder(builder => builder.ConfigureServices(services =>
@@ -43,9 +46,11 @@ public class McpToolProtocolTests
                 services.AddSingleton<ICrmGateway>(crmGateway);
                 services.RemoveAll<IKnowledgeRetriever>();
                 services.AddSingleton<IKnowledgeRetriever>(knowledgeRetriever);
+                services.RemoveAll<IEmailDraftGenerator>();
+                services.AddSingleton<IEmailDraftGenerator>(emailDraftGenerator);
             }));
 
-        return (factory, crmGateway, knowledgeRetriever);
+        return (factory, crmGateway, knowledgeRetriever, emailDraftGenerator);
     }
 
     private static async Task<McpClient> ConnectAsync(WebApplicationFactory<McpServerEntryPoint> factory, CancellationToken cancellationToken)
@@ -70,9 +75,9 @@ public class McpToolProtocolTests
     }
 
     [Fact]
-    public async Task ToolsList_ReturnsExactlyThreeExpectedToolsWithNonEmptySchemas()
+    public async Task ToolsList_ReturnsExactlyFourExpectedToolsWithNonEmptySchemas()
     {
-        var (factory, _, _) = CreateFactory();
+        var (factory, _, _, _) = CreateFactory();
         await using var factoryDisposable = factory;
         await using var client = await ConnectAsync(factory, TestContext.Current.CancellationToken);
 
@@ -80,15 +85,93 @@ public class McpToolProtocolTests
 
         var names = tools.Select(tool => tool.Name).ToList();
         Assert.Equal(
-            new[] { "get_customer", "get_interactions", "search_product_knowledge" },
+            new[] { "generate_email", "get_customer", "get_interactions", "search_product_knowledge" },
             names.OrderBy(name => name, StringComparer.Ordinal));
         Assert.All(tools, tool => Assert.False(tool.JsonSchema.ValueKind == JsonValueKind.Undefined));
     }
 
     [Fact]
+    public async Task ToolsList_GenerateEmailAnnotatedReadOnlyTrueDestructiveFalse()
+    {
+        var (factory, _, _, _) = CreateFactory();
+        await using var factoryDisposable = factory;
+        await using var client = await ConnectAsync(factory, TestContext.Current.CancellationToken);
+
+        var tools = await client.ListToolsAsync(cancellationToken: TestContext.Current.CancellationToken);
+        var generateEmail = Assert.Single(tools, tool => tool.Name == "generate_email");
+        var annotations = generateEmail.ProtocolTool.Annotations;
+
+        Assert.Equal(true, annotations?.ReadOnlyHint);
+        Assert.NotEqual(true, annotations?.DestructiveHint);
+    }
+
+    [Fact]
+    public async Task GenerateEmail_CanonicalSuccess_RoundTripsThroughRealMcpProtocol()
+    {
+        var (factory, crmGateway, knowledgeRetriever, emailDraftGenerator) = CreateFactory();
+        crmGateway.FindCustomerResult = CustomerLookupResult.Found(Cus0001);
+        crmGateway.InteractionsResult = [new InteractionDto("INT-0001", "CUS-0001", "Call", DateTime.UtcNow, "summary", "outcome", null, true)];
+        var metadata = new KnowledgeSourceMetadata(
+            "kb:product:PRD-SAV-006M", KnowledgeDocumentType.Product, "PRD-SAV-006M", null,
+            "vi", "1.0", "gemini-embedding-001", 768, "l2", true, "fingerprint");
+        knowledgeRetriever.SearchResult = KnowledgeSearchResult.Found(
+            [new KnowledgeMatch("kb:product:PRD-SAV-006M", KnowledgeDocumentType.Product, "nội dung", metadata, Distance: 0.4)]);
+        emailDraftGenerator.Results.Enqueue(new RawEmailDraftModel(
+            RawEmailDraftModel.StatusOk, "Thông tin tham khảo", "Kính gửi {{CUSTOMER_NAME}}, nội dung.",
+            "PRD-SAV-006M", ["kb:product:PRD-SAV-006M"], true, []));
+        await using var factoryDisposable = factory;
+        await using var client = await ConnectAsync(factory, TestContext.Current.CancellationToken);
+
+        var result = await client.CallToolAsync(
+            "generate_email",
+            new Dictionary<string, object?> { ["customerId"] = "CUS-0001", ["objective"] = "Follow-up nhu cầu gửi tiết kiệm" },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.NotEqual(true, result.IsError);
+        var root = ParseTextResult(result);
+        Assert.Equal(McpToolStatus.Success, root.GetProperty("status").GetString());
+        Assert.True(root.GetProperty("data").GetProperty("draft").GetProperty("requiresHumanApproval").GetBoolean());
+    }
+
+    [Fact]
+    public async Task GenerateEmail_CustomerNotFound_ReturnsStructuredNotFound()
+    {
+        var (factory, crmGateway, _, _) = CreateFactory();
+        crmGateway.FindCustomerResult = CustomerLookupResult.NotFound;
+        await using var factoryDisposable = factory;
+        await using var client = await ConnectAsync(factory, TestContext.Current.CancellationToken);
+
+        var result = await client.CallToolAsync(
+            "generate_email",
+            new Dictionary<string, object?> { ["customerId"] = "CUS-9999", ["objective"] = "objective" },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var root = ParseTextResult(result);
+        Assert.Equal(McpToolStatus.NotFound, root.GetProperty("status").GetString());
+        Assert.Equal(McpToolErrorCode.NotFound, root.GetProperty("error").GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task GenerateEmail_InvalidTone_ReturnsStructuredInvalidArgument()
+    {
+        var (factory, _, _, _) = CreateFactory();
+        await using var factoryDisposable = factory;
+        await using var client = await ConnectAsync(factory, TestContext.Current.CancellationToken);
+
+        var result = await client.CallToolAsync(
+            "generate_email",
+            new Dictionary<string, object?> { ["customerId"] = "CUS-0001", ["objective"] = "objective", ["tone"] = "friendly" },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var root = ParseTextResult(result);
+        Assert.Equal(McpToolStatus.Error, root.GetProperty("status").GetString());
+        Assert.Equal(McpToolErrorCode.InvalidArgument, root.GetProperty("error").GetProperty("code").GetString());
+    }
+
+    [Fact]
     public async Task GetCustomer_CanonicalSuccess_RoundTripsThroughRealMcpProtocol()
     {
-        var (factory, crmGateway, _) = CreateFactory();
+        var (factory, crmGateway, _, _) = CreateFactory();
         crmGateway.FindCustomerResult = CustomerLookupResult.Found(Cus0001);
         await using var factoryDisposable = factory;
         await using var client = await ConnectAsync(factory, TestContext.Current.CancellationToken);
@@ -109,7 +192,7 @@ public class McpToolProtocolTests
     [Fact]
     public async Task GetInteractions_CanonicalSuccess_RoundTripsThroughRealMcpProtocol()
     {
-        var (factory, crmGateway, _) = CreateFactory();
+        var (factory, crmGateway, _, _) = CreateFactory();
         crmGateway.InteractionsResult = [new InteractionDto("INT-0001", "CUS-0001", "Call", DateTime.UtcNow, "summary", "outcome", null, true)];
         await using var factoryDisposable = factory;
         await using var client = await ConnectAsync(factory, TestContext.Current.CancellationToken);
@@ -128,7 +211,7 @@ public class McpToolProtocolTests
     [Fact]
     public async Task SearchProductKnowledge_CanonicalSuccess_RoundTripsThroughRealMcpProtocol()
     {
-        var (factory, _, knowledgeRetriever) = CreateFactory();
+        var (factory, _, knowledgeRetriever, _) = CreateFactory();
         var metadata = new KnowledgeSourceMetadata(
             "kb:product:PRD-SAV-006M", KnowledgeDocumentType.Product, "PRD-SAV-006M", null,
             "vi", "1.0", "gemini-embedding-001", 768, "l2", true, "fingerprint");
@@ -155,7 +238,7 @@ public class McpToolProtocolTests
     [Fact]
     public async Task SearchProductKnowledge_TopKOutOfRange_ReturnsStructuredInvalidArgument()
     {
-        var (factory, _, _) = CreateFactory();
+        var (factory, _, _, _) = CreateFactory();
         await using var factoryDisposable = factory;
         await using var client = await ConnectAsync(factory, TestContext.Current.CancellationToken);
 
@@ -172,7 +255,7 @@ public class McpToolProtocolTests
     [Fact]
     public async Task GetCustomer_NotFound_ReturnsStructuredNotFound()
     {
-        var (factory, crmGateway, _) = CreateFactory();
+        var (factory, crmGateway, _, _) = CreateFactory();
         crmGateway.FindCustomerResult = CustomerLookupResult.NotFound;
         await using var factoryDisposable = factory;
         await using var client = await ConnectAsync(factory, TestContext.Current.CancellationToken);
@@ -190,7 +273,7 @@ public class McpToolProtocolTests
     [Fact]
     public async Task GetCustomer_Ambiguous_ReturnsStructuredAmbiguous()
     {
-        var (factory, crmGateway, _) = CreateFactory();
+        var (factory, crmGateway, _, _) = CreateFactory();
         crmGateway.FindCustomerResult = CustomerLookupResult.Ambiguous(
             [new CustomerCandidateDto("CUS-0002", "Trần Thị Hương", "Priority", "Hà Nội"),
              new CustomerCandidateDto("CUS-0003", "Trần Thị Hương", "Standard", "Đà Nẵng")]);
@@ -210,7 +293,7 @@ public class McpToolProtocolTests
     [Fact]
     public async Task GetCustomer_UpstreamUnavailable_ReturnsStructuredErrorWithoutLeakingExceptionDetails()
     {
-        var (factory, crmGateway, _) = CreateFactory();
+        var (factory, crmGateway, _, _) = CreateFactory();
         crmGateway.ThrowOnFindCustomer = new CrmUpstreamException("internal-detail-should-not-leak", retryable: true, traceId: null);
         await using var factoryDisposable = factory;
         await using var client = await ConnectAsync(factory, TestContext.Current.CancellationToken);
@@ -232,7 +315,7 @@ public class McpToolProtocolTests
     [Fact]
     public async Task SearchProductKnowledge_RagUnavailable_ReturnsStructuredErrorWithoutLeakingExceptionDetails()
     {
-        var (factory, _, knowledgeRetriever) = CreateFactory();
+        var (factory, _, knowledgeRetriever, _) = CreateFactory();
         knowledgeRetriever.ThrowOnSearch = new KnowledgeEmbeddingException("internal-detail-should-not-leak", retryable: true);
         await using var factoryDisposable = factory;
         await using var client = await ConnectAsync(factory, TestContext.Current.CancellationToken);

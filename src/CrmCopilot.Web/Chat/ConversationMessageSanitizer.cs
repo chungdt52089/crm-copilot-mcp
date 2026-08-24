@@ -1,3 +1,5 @@
+using CrmCopilot.Contracts.Pii;
+
 namespace CrmCopilot.Web.Chat;
 
 /// <summary>
