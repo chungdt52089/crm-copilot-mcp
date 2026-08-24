@@ -45,9 +45,12 @@ public class ChatEndpointTests
             "vi", "1.0", "gemini-embedding-001", 768, "l2", true, "fingerprint-1"),
         Distance: 0.47);
 
-    private static async Task<(HttpResponseMessage Response, ChatResponse Body)> PostChatAsync(HttpClient client, string message)
+    private static async Task<(HttpResponseMessage Response, ChatResponse Body)> PostChatAsync(
+        HttpClient client, string message, string? sessionId = null)
     {
-        var response = await client.PostAsJsonAsync("/api/chat", new ChatRequest(message), JsonOptions, TestContext.Current.CancellationToken);
+        var effectiveSessionId = sessionId ?? Guid.NewGuid().ToString();
+        var response = await client.PostAsJsonAsync(
+            "/api/chat", new ChatRequest(message, effectiveSessionId), JsonOptions, TestContext.Current.CancellationToken);
         var body = await response.Content.ReadFromJsonAsync<ChatResponse>(JsonOptions, TestContext.Current.CancellationToken);
         return (response, body!);
     }

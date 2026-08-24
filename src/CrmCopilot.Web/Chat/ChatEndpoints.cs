@@ -13,6 +13,7 @@ internal static class ChatEndpoints
     public static IEndpointRouteBuilder MapChatEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/api/chat", HandleAsync);
+        app.MapDelete("/api/chat/sessions/{sessionId}", HandleResetAsync);
         return app;
     }
 
@@ -22,7 +23,8 @@ internal static class ChatEndpoints
         ChatResponse response;
         try
         {
-            response = await orchestrator.HandleAsync(request.Message ?? string.Empty, cancellationToken).ConfigureAwait(false);
+            response = await orchestrator.HandleAsync(
+                request.SessionId ?? string.Empty, request.Message ?? string.Empty, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -40,6 +42,26 @@ internal static class ChatEndpoints
         }
 
         return TypedResults.Json(response, statusCode: MapToHttpStatus(response));
+    }
+
+    /// <summary>
+    /// P0-06 session reset (docs/04 §P0-06 "reset"). Idempotent: a well-formed GUID that was never
+    /// used, or already reset, still returns 204. A malformed/blank sessionId returns 400 using the
+    /// same <see cref="ChatTurnError"/> shape as <c>/api/chat</c> for a single error vocabulary
+    /// across this small API surface, even though this route doesn't return a <see cref="ChatResponse"/>.
+    /// Concurrently resetting a session that has an in-flight <c>/api/chat</c> turn is a known,
+    /// accepted MVP race (see plan) — no locking is added here.
+    /// </summary>
+    private static IResult HandleResetAsync(string sessionId, IConversationStateStore stateStore)
+    {
+        if (!SessionIdValidator.TryNormalize(sessionId, out var normalizedSessionId))
+        {
+            return TypedResults.BadRequest(
+                new ChatTurnError(ChatTurnErrorCode.InvalidArgument, SessionIdValidator.InvalidSessionIdMessage, Retryable: false));
+        }
+
+        stateStore.Reset(normalizedSessionId);
+        return TypedResults.NoContent();
     }
 
     internal static int MapToHttpStatus(ChatResponse response) => response.Status switch

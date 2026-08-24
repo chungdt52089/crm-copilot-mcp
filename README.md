@@ -246,14 +246,14 @@ dotnet run --project src/CrmCopilot.Web --launch-profile http --no-build
 curl http://localhost:5081/health
 ```
 
-Gọi thử `/api/chat`:
+Gọi thử `/api/chat` (từ P0-06, `sessionId` là bắt buộc — xem mục "Conversation State (P0-06)" bên dưới):
 
 ```powershell
 Invoke-RestMethod -Method Post http://localhost:5081/api/chat `
-  -Body (@{ message = "Tìm khách hàng CUS-0001" } | ConvertTo-Json) -ContentType "application/json"
+  -Body (@{ message = "Tìm khách hàng CUS-0001"; sessionId = [guid]::NewGuid().ToString() } | ConvertTo-Json) -ContentType "application/json"
 ```
 
-Response luôn là JSON `{reply, status, sourceIds, toolTrace, data, error}` — status HTTP tương ứng: `200` (success), `404` (not_found), `409` (ambiguous, hoặc đã đạt giới hạn tool-loop), `400` (input/tool-selection không hợp lệ — PII_REJECTED, CUSTOMER_ID_REQUIRED, UNKNOWN_TOOL, v.v.), `503` (MCP/CRM/RAG upstream unavailable), `502` (Gemini/MCP protocol lỗi hoặc lỗi nội bộ).
+Response luôn là JSON `{reply, status, sourceIds, toolTrace, data, error}` — status HTTP tương ứng: `200` (success), `404` (not_found), `409` (ambiguous, hoặc đã đạt giới hạn tool-loop), `400` (input/tool-selection/sessionId không hợp lệ — PII_REJECTED, CUSTOMER_ID_REQUIRED, UNKNOWN_TOOL, INVALID_ARGUMENT, v.v.), `503` (MCP/CRM/RAG upstream unavailable), `502` (Gemini/MCP protocol lỗi hoặc lỗi nội bộ).
 
 **Mandatory live acceptance gate** — bắt buộc trước khi báo P0-05 PASS (giống P0-03), tách biệt khỏi test suite mặc định (`dotnet test` chạy offline với `FakeGeminiChatClient` + MCP protocol thật qua fakes, không cần key thật):
 
@@ -263,22 +263,46 @@ $env:GEMINI_API_KEY = "<giá trị thật>"
 $env:CHROMA_BASE_URL = "http://localhost:8000"
 dotnet run --project src/CrmCopilot.McpServer --no-build -- --ingest-knowledge
 
+# Từ P0-06, sessionId là bắt buộc trên mỗi request — dùng cùng một sessionId cho các bước 2-4 để
+# minh hoạ conversation state (bước 3/4 có thể bỏ "CUS-0001" và dùng "khách hàng này" thay thế).
+$sessionId = [guid]::NewGuid().ToString()
+
 # 2) get_customer thật
-Invoke-RestMethod -Method Post http://localhost:5081/api/chat -Body (@{message="Tìm khách hàng CUS-0001"} | ConvertTo-Json) -ContentType "application/json"
+Invoke-RestMethod -Method Post http://localhost:5081/api/chat -Body (@{message="Tìm khách hàng CUS-0001"; sessionId=$sessionId} | ConvertTo-Json) -ContentType "application/json"
 # kỳ vọng: toolTrace có get_customer/success, data.customer.id == "CUS-0001"
 
 # 3) get_interactions thật
-Invoke-RestMethod -Method Post http://localhost:5081/api/chat -Body (@{message="Xem các tương tác gần đây của CUS-0001"} | ConvertTo-Json) -ContentType "application/json"
+Invoke-RestMethod -Method Post http://localhost:5081/api/chat -Body (@{message="Xem các tương tác gần đây của CUS-0001"; sessionId=$sessionId} | ConvertTo-Json) -ContentType "application/json"
 # kỳ vọng: toolTrace có get_interactions/success, data.interactions không rỗng
 
 # 4) search_product_knowledge thật, dùng đúng collection vừa ingest
-Invoke-RestMethod -Method Post http://localhost:5081/api/chat -Body (@{message="Khách hàng CUS-0001 quan tâm gửi tiết kiệm, gợi ý sản phẩm phù hợp"} | ConvertTo-Json) -ContentType "application/json"
+Invoke-RestMethod -Method Post http://localhost:5081/api/chat -Body (@{message="Khách hàng CUS-0001 quan tâm gửi tiết kiệm, gợi ý sản phẩm phù hợp"; sessionId=$sessionId} | ConvertTo-Json) -ContentType "application/json"
 # kỳ vọng: toolTrace có search_product_knowledge/success, sourceIds chứa kb:product:PRD-SAV-006M
 ```
 
 Ghi lại `toolTrace` đầy đủ (tool name/status/traceId/durationMs) của cả 3 bước làm evidence — không dùng `curl` thô cho `/api/chat` (JSON body cần đúng `Content-Type`).
 
 **Giới hạn đã biết:** heuristic CRM-intent (từ khóa + cụm tên viết hoa liên tiếp) là best-effort — có thể từ chối nhầm câu hỏi hợp lệ (chấp nhận được) và có thể bỏ sót một số cách diễn đạt tên hiếm gặp không kèm từ khóa/không viết hoa liên tiếp; loại bỏ hoàn toàn rủi ro này cần hạ tầng masking/NER thật của P0-07. RM nên tham chiếu khách hàng bằng mã (`CUS-0001`) trong chat, không gõ tên đầy đủ.
+
+### Conversation State (P0-06)
+
+Từ P0-06, `sessionId` (một chuỗi GUID hợp lệ) là **bắt buộc** trên mỗi request `/api/chat` — trình duyệt tự sinh một lần và gửi lại cho mọi lượt của cùng một phiên hội thoại; `sessionId` không bao giờ được server sinh ra. Thiếu, rỗng hoặc không phải GUID hợp lệ → `400 INVALID_ARGUMENT`.
+
+`CrmCopilot.Web` giữ một `IConversationStateStore` in-memory (`ConcurrentDictionary`, docs/02_ARCHITECTURE.md §6), theo đúng `sessionId`, ghi nhớ `CurrentCustomerId` cùng vài trường ngắn hạn khác (không phải transcript). Nhờ đó, sau khi một lượt đã tra cứu thành công một khách hàng (`get_customer`/`get_interactions`), lượt tiếp theo trong cùng phiên có thể dùng cụm như "khách hàng này" mà không cần lặp lại mã khách hàng — Host tự điền `customerId` đã lưu vào tool call trước khi gọi MCP (MCP Server vẫn stateless, luôn nhận `customerId` explicit, không đổi so với P0-04/P0-05). Nếu chưa có khách hàng nào được xác lập trong phiên, một câu hỏi kiểu "khách hàng này" sẽ bị từ chối với `400 CUSTOMER_ID_REQUIRED` thay vì đoán mò.
+
+Reset một phiên (xoá `CurrentCustomerId` và lịch sử ngắn hạn đã lưu, dùng cho tính năng "New conversation" ở P0-08 sau này):
+
+```powershell
+Invoke-RestMethod -Method Delete "http://localhost:5081/api/chat/sessions/$sessionId"
+```
+
+Luôn trả `204 No Content` (idempotent) nếu `sessionId` là GUID hợp lệ, kể cả khi phiên đó chưa từng tồn tại; `400 INVALID_ARGUMENT` nếu `sessionId` không phải GUID hợp lệ.
+
+**Giới hạn đã biết:**
+- Restart `CrmCopilot.Web` sẽ mất toàn bộ conversation state (in-memory, chấp nhận được ở MVP — xem docs/02 §6, docs/11 Q&A).
+- Không có TTL/idle-expiry cho một session; một `sessionId` hợp lệ dù bị từ chối ngay từ `InputGuard` (vd. do PII) vẫn tạo một entry rỗng trong store cho đến khi restart hoặc bị `DELETE` tường minh.
+- Gọi `DELETE /api/chat/sessions/{sessionId}` đồng thời với một request `/api/chat` đang chạy cho cùng `sessionId` là một race chấp nhận được ở P0-06 (không có khoá đồng bộ) — UI P0-08 cần tự vô hiệu hoá nút Reset/"New conversation" trong khi đang có request chat cho phiên đó.
+- `RecentSanitizedMessages` chỉ chống được ba dạng PII cơ học mà `InputGuard` đã nhận diện (email/số điện thoại kiểu VN/chuỗi 9+ chữ số) trước khi lưu — đây là lớp phòng thủ bổ sung (defense-in-depth), không phải bộ phát hiện PII toàn diện.
 
 ### Secret hygiene
 
