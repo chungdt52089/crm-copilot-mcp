@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using CrmCopilot.Contracts.Chat;
+using CrmCopilot.Contracts.Pii;
 
 namespace CrmCopilot.Web.Chat;
 
