@@ -93,6 +93,9 @@ ChatGPT không thể tự biết thay đổi trong phiên Claude nếu chưa đ�
 - P0-01 — Repository & Solution Scaffold: **DONE**
 - P0-02 — Synthetic Data & Mock CRM API: **DONE**
 - P0-03 — Gemini Embedding & Chroma RAG: **DONE** (PASS; merged to `develop` via PR #7; xem mục 8 "Gemini Embedding & Chroma RAG (P0-03)" và `docs/CHECKPOINT_STATUS.md`)
+- P0-04 — MCP Server Core Tools: **DONE** (PASS; merged to `develop` via PR #8; xem mục 8 "MCP Server Core Tools (P0-04)" và `docs/CHECKPOINT_STATUS.md`)
+- P0-05 — AI Host + MCP Client: **DONE** (PASS; merged to `develop` via PR #9; xem mục 8 "AI Host + MCP Client (P0-05)" và `docs/CHECKPOINT_STATUS.md`)
+- P0-06 — Conversation State: **merged, chờ review chính thức** (code + test merged to `develop` via PR #11, `042f65b` → merge `340b678`, 2026-08-24; xem mục 8 "Conversation State (P0-06)" và `docs/CHECKPOINT_STATUS.md`)
 
 Chi tiết evidence/verdict từng checkpoint xem `docs/CHECKPOINT_STATUS.md`.
 
