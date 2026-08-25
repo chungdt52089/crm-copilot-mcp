@@ -103,19 +103,23 @@ internal static class McpToolResultParser
     /// candidates — already the non-DTO, UI-safe shape per docs/06 §7), never the caller-supplied
     /// accumulated state. <paramref name="sourceIds"/> is not PII (already public inside every MCP
     /// tool result) and is kept for observability.</summary>
+    /// <param name="reply">P0-08: an optional Host-authored, deterministic, PII-safe reply for the
+    /// not-found case (e.g. naming the customer id that was actually looked up). Never model text.
+    /// Ambiguous keeps its own null reply — the candidate list is the answer there.</param>
     public static ChatResponse ToDeterministicChatResponse(
-        ParsedMcpResult parsed, IReadOnlyList<string> sourceIds, IReadOnlyList<ChatToolTraceEntry> trace)
+        ParsedMcpResult parsed, IReadOnlyList<string> sourceIds, IReadOnlyList<ChatToolTraceEntry> trace,
+        string? reply = null)
     {
         if (parsed.Status == McpToolStatus.Ambiguous)
         {
             var candidates = ExtractCandidates(parsed.Data);
             return new ChatResponse(
-                null, ChatTurnStatus.Ambiguous, sourceIds, trace, new ChatResponseData(null, candidates, null, null), null);
+                null, ChatTurnStatus.Ambiguous, sourceIds, trace, new ChatResponseData(null, candidates, null, null, null), null);
         }
 
         var mappedError = parsed.Error is { } e ? new ChatTurnError(e.Code, e.Message, e.Retryable) : null;
         var status = parsed.Status == McpToolStatus.NotFound ? ChatTurnStatus.NotFound : ChatTurnStatus.Error;
-        return new ChatResponse(null, status, sourceIds, trace, null, mappedError);
+        return new ChatResponse(reply, status, sourceIds, trace, null, mappedError);
     }
 
     public static CustomerDto? ExtractCustomer(JsonElement? data) =>
@@ -129,6 +133,9 @@ internal static class McpToolResultParser
 
     public static IReadOnlyList<KnowledgeMatchDto>? ExtractKnowledgeMatches(JsonElement? data) =>
         Deserialize<SearchProductKnowledgeData>(data)?.Matches;
+
+    public static EmailDraftDto? ExtractEmailDraft(JsonElement? data) =>
+        Deserialize<GenerateEmailData>(data)?.Draft;
 
     private static T? Deserialize<T>(JsonElement? data) where T : class =>
         data is { } value ? value.Deserialize<T>(CrmJsonOptions.Default) : null;

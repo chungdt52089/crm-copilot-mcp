@@ -56,14 +56,16 @@ public class ConversationStateEndToEndTests
         await using var harness = await ChatTestHarness.CreateAsync(TestContext.Current.CancellationToken);
         var sessionId = Guid.NewGuid().ToString();
         harness.CrmGateway.FindCustomerResult = CustomerLookupResult.Found(Cus0001);
+        // Since P0-08 get_customer is terminal — no follow-up Gemini completion is requested, so no
+        // TextResponse is scripted here (an unconsumed one would leak into the next turn's queue).
         harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
             "get_customer", new Dictionary<string, object> { ["customerId"] = "CUS-0001" }));
-        harness.ChatClient.Enqueue(FakeGeminiChatClient.TextResponse("Đã tìm thấy khách hàng CUS-0001."));
 
         var (response, _) = await PostChatAsync(harness.CreateWebClient(), "Tìm khách hàng CUS-0001", sessionId);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("CUS-0001", GetStateStore(harness).GetOrCreate(sessionId).CurrentCustomerId);
+        Assert.Equal(1, harness.ChatClient.CallCount);
     }
 
     // --- Turn 2 "khách hàng này" reuses the stored ID, deterministically ---
@@ -75,20 +77,19 @@ public class ConversationStateEndToEndTests
         harness.CrmGateway.FindCustomerResult = CustomerLookupResult.Found(Cus0001);
         harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
             "get_customer", new Dictionary<string, object> { ["customerId"] = "CUS-0001" }));
-        harness.ChatClient.Enqueue(FakeGeminiChatClient.TextResponse("Đã tìm thấy khách hàng CUS-0001."));
         var client = harness.CreateWebClient();
         await PostChatAsync(client, "Tìm khách hàng CUS-0001", sessionId);
 
         harness.CrmGateway.InteractionsResult = [Int0001];
         // Deliberately omit customerId — proves the Host substitutes it, not that Gemini guessed.
         harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse("get_interactions"));
-        harness.ChatClient.Enqueue(FakeGeminiChatClient.TextResponse("Khách hàng có 1 tương tác gần đây."));
 
         var (response, body) = await PostChatAsync(client, "Khách hàng này có tương tác gì gần đây?", sessionId);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(ChatTurnStatus.Success, body.Status);
         Assert.Equal("CUS-0001", harness.CrmGateway.LastInteractionsCustomerId);
+        Assert.Single(body.ToolTrace);
     }
 
     // --- Switching the active customer mid-session ---
@@ -102,20 +103,17 @@ public class ConversationStateEndToEndTests
         harness.CrmGateway.FindCustomerResult = CustomerLookupResult.Found(Cus0001);
         harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
             "get_customer", new Dictionary<string, object> { ["customerId"] = "CUS-0001" }));
-        harness.ChatClient.Enqueue(FakeGeminiChatClient.TextResponse("Đã tìm thấy khách hàng CUS-0001."));
         await PostChatAsync(client, "Tìm khách hàng CUS-0001", sessionId);
 
         harness.CrmGateway.FindCustomerResult = CustomerLookupResult.Found(Cus0002);
         harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
             "get_customer", new Dictionary<string, object> { ["customerId"] = "CUS-0002" }));
-        harness.ChatClient.Enqueue(FakeGeminiChatClient.TextResponse("Đã tìm thấy khách hàng CUS-0002."));
         await PostChatAsync(client, "Tìm khách hàng CUS-0002", sessionId);
 
         Assert.Equal("CUS-0002", GetStateStore(harness).GetOrCreate(sessionId).CurrentCustomerId);
 
         harness.CrmGateway.InteractionsResult = [Int0002];
         harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse("get_interactions"));
-        harness.ChatClient.Enqueue(FakeGeminiChatClient.TextResponse("Khách hàng có 1 tương tác gần đây."));
         await PostChatAsync(client, "Khách hàng này có tương tác gì gần đây?", sessionId);
 
         Assert.Equal("CUS-0002", harness.CrmGateway.LastInteractionsCustomerId);
@@ -133,16 +131,16 @@ public class ConversationStateEndToEndTests
         harness.CrmGateway.FindCustomerResult = CustomerLookupResult.Found(Cus0001);
         harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
             "get_customer", new Dictionary<string, object> { ["customerId"] = "CUS-0001" }));
-        harness.ChatClient.Enqueue(FakeGeminiChatClient.TextResponse("Đã tìm thấy khách hàng CUS-0001."));
         await PostChatAsync(client, "Tìm khách hàng CUS-0001", sessionA);
 
         var (response, body) = await PostChatAsync(client, "Khách hàng này có tương tác gì?", sessionB);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(ChatTurnErrorCode.CustomerIdRequired, body.Error?.Code);
-        // Session A's turn made 2 Gemini calls (function call + text); session B's turn is
-        // rejected by InputGuard before Gemini is ever reached, so the count doesn't grow.
-        Assert.Equal(2, harness.ChatClient.CallCount);
+        // Session A's turn made exactly 1 Gemini call (the terminal get_customer ends the turn with
+        // no follow-up completion); session B's turn is rejected by InputGuard before Gemini is ever
+        // reached, so the count doesn't grow.
+        Assert.Equal(1, harness.ChatClient.CallCount);
         Assert.Null(GetStateStore(harness).GetOrCreate(sessionB).CurrentCustomerId);
     }
 
@@ -176,7 +174,6 @@ public class ConversationStateEndToEndTests
             harness.CrmGateway.FindCustomerResult = CustomerLookupResult.Found(customer);
             harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
                 "get_customer", new Dictionary<string, object> { ["customerId"] = customer.Id }));
-            harness.ChatClient.Enqueue(FakeGeminiChatClient.TextResponse($"Đã tìm thấy khách hàng {customer.Id}."));
             await PostChatAsync(client, $"Tìm khách hàng {customer.Id}", sessionId);
         }
 

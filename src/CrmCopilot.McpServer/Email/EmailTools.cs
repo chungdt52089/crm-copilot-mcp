@@ -37,6 +37,14 @@ internal sealed class EmailTools(
     private const int ProductTopK = 3;
     private const int TemplateTopK = 2;
     private const int InteractionLimit = 5;
+
+    /// <summary>Minimum letters (placeholder excluded) before the diacritics check can fire at all —
+    /// a short body has too little signal to judge. See <see cref="LacksVietnameseDiacritics"/>.</summary>
+    private const int MinLetterCountForAccentCheck = 120;
+
+    /// <summary>Genuine Vietnamese prose runs ~15-25% accented letters; 5% is an order of magnitude
+    /// below that, so only near-total absence of diacritics trips it.</summary>
+    private const double MinVietnameseAccentRatio = 0.05;
     private const string CustomerNamePlaceholder = "{{CUSTOMER_NAME}}";
     private const string NotFoundMessage = "Không tìm thấy khách hàng phù hợp.";
     private const string ModelErrorMessage = "Không thể tạo email draft từ Gemini.";
@@ -54,7 +62,7 @@ internal sealed class EmailTools(
         new(@"\d[\d.,]*\s*(?:đồng|vnđ|vnd)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     [McpServerTool(Name = "generate_email", ReadOnly = true, Destructive = false)]
-    [Description("Tạo bản nháp email tiếng Việt cho một khách hàng đã xác định, dựa trên interactions và product/template knowledge được retrieve. Không gửi email. Luôn yêu cầu RM duyệt.")]
+    [Description("Tạo bản nháp email tiếng Việt cho một khách hàng đã xác định. Tool này TỰ lấy các interaction gần nhất của khách hàng và TỰ retrieve product knowledge cùng email template cần thiết. KHÔNG cần gọi search_product_knowledge trước hoặc song song với tool này. Không gửi email. Luôn yêu cầu RM duyệt.")]
     public async Task<string> GenerateEmail(
         [Description("Customer ID đã xác định, ví dụ CUS-0001.")] string customerId,
         [Description("Mục tiêu của email (tiếng Việt), tối đa 500 ký tự.")] string objective,
@@ -241,7 +249,8 @@ internal sealed class EmailTools(
         {
             var promptContext = new EmailDraftPromptContext(
                 maskedContext.MaskedObjective, tone, customer.Segment, maskedContext.Interactions,
-                productMatches, templateMatches, productCode, correctiveInstruction);
+                productMatches, templateMatches, productCode, correctiveInstruction,
+                ResolveLanguage(customer));
 
             var raw = await emailDraftGenerator.GenerateAsync(promptContext, cancellationToken).ConfigureAwait(false);
 
@@ -411,7 +420,61 @@ internal sealed class EmailTools(
             return "unverified_numeric_claim";
         }
 
+        if (string.Equals(ResolveLanguage(customer), EmailGenerationOptions.DefaultLanguage, StringComparison.OrdinalIgnoreCase) &&
+            LacksVietnameseDiacritics(raw.Body!))
+        {
+            return "unaccented_vietnamese";
+        }
+
         return null;
+    }
+
+    private static string ResolveLanguage(CustomerDto customer) =>
+        string.IsNullOrWhiteSpace(customer.PreferredLanguage)
+            ? EmailGenerationOptions.DefaultLanguage
+            : customer.PreferredLanguage;
+
+    /// <summary>
+    /// P0-08 live finding: the model produced grammatical but completely unaccented Vietnamese
+    /// ("Kinh gui ... chung toi xin gui thong tin tham khao"). Nothing in this pipeline strips
+    /// diacritics — the knowledge evidence and the restored customer name are both fully accented,
+    /// which is exactly why they still rendered correctly while the model's own prose did not — so
+    /// the only correct response is to reject the draft and let the existing single retry ask for
+    /// a rewrite. This method never adds diacritics itself.
+    ///
+    /// Runs on the RAW model body, before <see cref="RestorePlaceholder"/>, and strips the
+    /// {{CUSTOMER_NAME}} placeholder first so that neither the customer's accented name nor an
+    /// accented product name copied out of evidence can mask otherwise fully unaccented prose.
+    ///
+    /// Deliberately blunt, never a style judgement: it fires only when a body long enough to be
+    /// meaningful (<see cref="MinLetterCountForAccentCheck"/> letters) contains essentially no
+    /// Vietnamese-accented letters at all (&lt; <see cref="MinVietnameseAccentRatio"/>). Genuine
+    /// Vietnamese prose runs ~15-25% accented letters, an order of magnitude above the threshold,
+    /// so quoting a product name or two can never push an unaccented body above it.
+    /// </summary>
+    private static bool LacksVietnameseDiacritics(string body)
+    {
+        var prose = body.Replace(CustomerNamePlaceholder, string.Empty, StringComparison.Ordinal);
+
+        var letterCount = 0;
+        var accentedLetterCount = 0;
+
+        foreach (var character in prose)
+        {
+            if (!char.IsLetter(character))
+            {
+                continue;
+            }
+
+            letterCount++;
+            if (character > sbyte.MaxValue)
+            {
+                accentedLetterCount++;
+            }
+        }
+
+        return letterCount >= MinLetterCountForAccentCheck &&
+               accentedLetterCount < letterCount * MinVietnameseAccentRatio;
     }
 
     private static bool NumericClaimsAreVerified(
@@ -454,6 +517,8 @@ internal sealed class EmailTools(
             "REQUESTED_PRODUCT_CODE đã chỉ định một mã cụ thể. suggestedProductCode phải đúng bằng mã đó, không được đề xuất mã khác.",
         "pii_detected_in_output" =>
             "Phản hồi trước chứa dữ liệu dạng email/số điện thoại/số tài khoản/chuỗi giống secret. Giữ nguyên placeholder {{CUSTOMER_NAME}}; không tự chèn thông tin liên hệ thật.",
+        "unaccented_vietnamese" =>
+            "Phản hồi trước viết tiếng Việt KHÔNG DẤU. Viết lại toàn bộ subject và body bằng tiếng Việt có dấu đầy đủ, dùng đúng chữ Unicode tiếng Việt (ví dụ \"Kính gửi\", không phải \"Kinh gui\"). Giữ nguyên placeholder {{CUSTOMER_NAME}} và không đổi nội dung có căn cứ.",
         "unverified_numeric_claim" =>
             "Phản hồi trước có số liệu (%, số tiền) không xuất hiện trong evidence sản phẩm/template. Chỉ nêu số liệu có trong evidence; nếu evidence không có số liệu, không đề cập số liệu.",
         _ => // "invalid_json" and any other unrecognized reason

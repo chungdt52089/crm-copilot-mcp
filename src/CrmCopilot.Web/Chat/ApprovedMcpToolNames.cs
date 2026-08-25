@@ -10,7 +10,8 @@ internal static class ApprovedMcpToolNames
     public const string GetCustomer = "get_customer";
     public const string GetInteractions = "get_interactions";
     public const string SearchProductKnowledge = "search_product_knowledge";
+    public const string GenerateEmail = "generate_email";
 
     public static readonly IReadOnlySet<string> All =
-        new HashSet<string>([GetCustomer, GetInteractions, SearchProductKnowledge], StringComparer.Ordinal);
+        new HashSet<string>([GetCustomer, GetInteractions, SearchProductKnowledge, GenerateEmail], StringComparer.Ordinal);
 }

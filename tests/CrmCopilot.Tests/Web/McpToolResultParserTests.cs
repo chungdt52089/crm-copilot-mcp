@@ -123,4 +123,21 @@ public class McpToolResultParserTests
         Assert.Equal("CUS-0002", candidates![0].Id);
         Assert.Equal("Standard", candidates[0].Segment);
     }
+
+    [Fact]
+    public void ExtractEmailDraft_RoundTripsEmailDraftShape()
+    {
+        using var document = JsonDocument.Parse("""
+            {"draft":{"subject":"S","body":"B","suggestedProductCode":"PRD-SAV-006M",
+             "sourceIds":["kb:product:PRD-SAV-006M"],"requiresHumanApproval":true,
+             "piiMaskSummary":{"maskedFieldTypes":["name","email","phone","accountReference"]}}}
+            """);
+
+        var draft = McpToolResultParser.ExtractEmailDraft(document.RootElement.Clone());
+
+        Assert.NotNull(draft);
+        Assert.Equal("PRD-SAV-006M", draft!.SuggestedProductCode);
+        Assert.True(draft.RequiresHumanApproval);
+        Assert.Contains("name", draft.PiiMaskSummary.MaskedFieldTypes);
+    }
 }
