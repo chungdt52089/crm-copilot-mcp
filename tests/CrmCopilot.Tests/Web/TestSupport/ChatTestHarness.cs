@@ -1,7 +1,9 @@
 using CrmCopilot.Contracts.Crm;
 using CrmCopilot.Contracts.Knowledge;
 using CrmCopilot.McpServer;
+using CrmCopilot.McpServer.Email;
 using CrmCopilot.Tests.Crm.TestSupport;
+using CrmCopilot.Tests.Email.TestSupport;
 using CrmCopilot.Tests.Knowledge.TestSupport;
 using CrmCopilot.Tests.TestSupport;
 using CrmCopilot.Web;
@@ -29,6 +31,7 @@ internal sealed class ChatTestHarness : IAsyncDisposable
     public required FakeGeminiChatClient ChatClient { get; init; }
     public required FakeCrmGateway CrmGateway { get; init; }
     public required FakeKnowledgeRetriever KnowledgeRetriever { get; init; }
+    public required FakeEmailDraftGenerator EmailDraftGenerator { get; init; }
 
     public HttpClient CreateWebClient() => WebFactory.CreateClient();
 
@@ -36,6 +39,7 @@ internal sealed class ChatTestHarness : IAsyncDisposable
     {
         var crmGateway = new FakeCrmGateway();
         var knowledgeRetriever = new FakeKnowledgeRetriever();
+        var emailDraftGenerator = new FakeEmailDraftGenerator();
 
         var mcpFactory = McpServerTestHost.CreateWithMockCrmApiBaseUrl(McpServerTestHost.ValidMockCrmApiBaseUrl)
             .WithWebHostBuilder(builder => builder.ConfigureServices(services =>
@@ -44,6 +48,8 @@ internal sealed class ChatTestHarness : IAsyncDisposable
                 services.AddSingleton<ICrmGateway>(crmGateway);
                 services.RemoveAll<IKnowledgeRetriever>();
                 services.AddSingleton<IKnowledgeRetriever>(knowledgeRetriever);
+                services.RemoveAll<IEmailDraftGenerator>();
+                services.AddSingleton<IEmailDraftGenerator>(emailDraftGenerator);
                 if (includeExtraTool)
                 {
                     services.AddMcpServer().WithTools<ExtraTestOnlyTool>();
@@ -71,6 +77,7 @@ internal sealed class ChatTestHarness : IAsyncDisposable
             ChatClient = chatClient,
             CrmGateway = crmGateway,
             KnowledgeRetriever = knowledgeRetriever,
+            EmailDraftGenerator = emailDraftGenerator,
         };
     }
 

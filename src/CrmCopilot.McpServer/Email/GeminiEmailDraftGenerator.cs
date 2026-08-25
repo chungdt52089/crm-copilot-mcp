@@ -34,7 +34,10 @@ internal sealed class GeminiEmailDraftGenerator(Client client) : IEmailDraftGene
         4. Khi cần nhắc tên khách hàng, dùng đúng nguyên văn {{CUSTOMER_NAME}} (giữ nguyên hai dấu ngoặc
            nhọn kép) — không tự đặt tên khác.
         5. Trả về đúng một object JSON khớp schema đã cung cấp — không Markdown, không văn bản nào khác.
-        6. Viết bằng tiếng Việt, tone theo đúng giá trị TONE bên dưới.
+        6. Viết bằng tiếng Việt CÓ DẤU đầy đủ, dùng đúng chữ Unicode tiếng Việt (ă, â, đ, ê, ô, ơ, ư và mọi
+           dấu thanh sắc/huyền/hỏi/ngã/nặng). TUYỆT ĐỐI không viết tiếng Việt không dấu, không romanize,
+           không viết tắt kiểu tin nhắn — ví dụ phải viết "Kính gửi", không được viết "Kinh gui".
+           Tone theo đúng giá trị TONE bên dưới.
         7. usedSourceIds phải chứa ít nhất một source ID, chỉ được chứa source ID xuất hiện trong
            EVIDENCE_INTERACTION/EVIDENCE_PRODUCT/EVIDENCE_TEMPLATE bên dưới, và phải có ít nhất một source ID
            dạng kb:product: hoặc kb:email-template: (không được chỉ trích interaction).
@@ -64,7 +67,7 @@ internal sealed class GeminiEmailDraftGenerator(Client client) : IEmailDraftGene
     {
         var config = new GenerateContentConfig
         {
-            SystemInstruction = new Content { Parts = [Part.FromText(BuildSystemInstruction(context.CorrectiveInstruction))] },
+            SystemInstruction = new Content { Parts = [Part.FromText(BuildSystemInstruction(context.CorrectiveInstruction, context.Language))] },
             ResponseMimeType = "application/json",
             // ResponseJsonSchema is object-typed on Google.GenAI 1.19.0's GenerateContentConfig
             // (confirmed by reflection against the installed package, not guessed) — it accepts a
@@ -120,10 +123,25 @@ internal sealed class GeminiEmailDraftGenerator(Client client) : IEmailDraftGene
         }
     }
 
-    internal static string BuildSystemInstruction(string? correctiveInstruction) =>
-        correctiveInstruction is { Length: > 0 }
-            ? SystemInstructionText + "\n\nLƯU Ý SỬA LỖI: " + correctiveInstruction
-            : SystemInstructionText;
+    /// <summary>P0-08: the customer's locale is now stated explicitly instead of being left implicit
+    /// in rule 6 — <see cref="EmailDraftPromptContext.Language"/> comes from CustomerDto.PreferredLanguage,
+    /// which until P0-08 was never read anywhere in this pipeline.</summary>
+    internal static string BuildSystemInstruction(
+        string? correctiveInstruction, string language = EmailGenerationOptions.DefaultLanguage)
+    {
+        var instruction = SystemInstructionText;
+
+        if (string.Equals(language, EmailGenerationOptions.DefaultLanguage, StringComparison.OrdinalIgnoreCase))
+        {
+            instruction +=
+                "\n\nNGÔN NGỮ: khách hàng dùng tiếng Việt (vi). Subject và body PHẢI là tiếng Việt tự nhiên, " +
+                "có dấu đầy đủ theo đúng quy tắc 6.";
+        }
+
+        return correctiveInstruction is { Length: > 0 }
+            ? instruction + "\n\nLƯU Ý SỬA LỖI: " + correctiveInstruction
+            : instruction;
+    }
 
     internal static IReadOnlyList<Content> BuildContents(EmailDraftPromptContext context) =>
         [new Content { Role = "user", Parts = [Part.FromText(BuildUserContentText(context))] }];
@@ -136,6 +154,7 @@ internal sealed class GeminiEmailDraftGenerator(Client client) : IEmailDraftGene
         builder.Append("TONE:\n").Append(context.Tone).Append("\n\n");
         builder.Append("CUSTOMER_CONTEXT:\n");
         builder.Append("segment: ").Append(context.Segment).Append('\n');
+        builder.Append("language: ").Append(context.Language).Append('\n');
         builder.Append("placeholder: {{CUSTOMER_NAME}}\n\n");
 
         builder.Append("EVIDENCE_INTERACTION:\n");

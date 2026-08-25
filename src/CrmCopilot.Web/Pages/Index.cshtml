@@ -1,0 +1,65 @@
+@page
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CRM Copilot</title>
+  <link rel="stylesheet" href="/css/app.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>CRM Copilot</h1>
+    <button id="reset-button" type="button">New conversation</button>
+  </header>
+
+  <main>
+    <section id="chat-log" aria-live="polite"></section>
+
+    <div id="error-banner" role="alert" hidden></div>
+
+    <div id="stale-data-notice" class="stale-notice" hidden></div>
+
+    <section id="customer-card" class="panel" hidden>
+      <h2>Khách hàng</h2>
+      <div id="customer-card-body"></div>
+    </section>
+
+    <section id="candidate-list" class="panel" hidden>
+      <h2>Nhiều khách hàng trùng tên</h2>
+      <p>Vui lòng nhập chính xác mã khách hàng:</p>
+      <div id="candidate-list-body"></div>
+    </section>
+
+    <section id="interaction-list" class="panel" hidden>
+      <h2>Tương tác gần đây</h2>
+      <div id="interaction-list-body"></div>
+    </section>
+
+    <section id="draft-panel" class="panel" hidden>
+      <h2>Email nháp</h2>
+      <div id="draft-subject" class="field"></div>
+      <div id="draft-body" class="draft-body"></div>
+      <div id="draft-approval-label" class="approval-label"></div>
+      <div id="draft-source-chips" class="chip-row"></div>
+    </section>
+
+    <details id="trace-panel" class="panel" hidden>
+      <summary>Tool trace &amp; sources</summary>
+      <div id="trace-entries"></div>
+      <div id="source-chips" class="chip-row"></div>
+    </details>
+
+    <form id="chat-form">
+      <label for="chat-input">Nhập yêu cầu</label>
+      <textarea id="chat-input" maxlength="2000" required rows="3"></textarea>
+      <div class="form-actions">
+        <button id="send-button" type="submit">Gửi</button>
+        <span id="loading-indicator" hidden>Đang xử lý...</span>
+      </div>
+    </form>
+  </main>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>

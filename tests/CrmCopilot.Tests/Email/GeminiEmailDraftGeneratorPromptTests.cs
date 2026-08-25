@@ -133,6 +133,43 @@ public class GeminiEmailDraftGeneratorPromptTests
         Assert.Contains("nội dung template", text);
     }
 
+    // --- P0-08: the vi locale must demand fully accented Vietnamese, and PreferredLanguage must
+    // actually reach the prompt (before P0-08 it was never read anywhere in this pipeline). ---
+    [Fact]
+    public void BuildSystemInstruction_VietnameseLocale_RequiresFullyAccentedVietnamese()
+    {
+        var instruction = GeminiEmailDraftGenerator.BuildSystemInstruction(null, "vi");
+
+        Assert.Contains("CÓ DẤU", instruction, StringComparison.Ordinal);
+        Assert.Contains("Kính gửi", instruction, StringComparison.Ordinal);
+        Assert.Contains("Kinh gui", instruction, StringComparison.Ordinal); // the counter-example it forbids
+        Assert.Contains("tiếng Việt (vi)", instruction, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildSystemInstruction_DefaultsToVietnameseLocale()
+    {
+        Assert.Equal(
+            GeminiEmailDraftGenerator.BuildSystemInstruction(null, "vi"),
+            GeminiEmailDraftGenerator.BuildSystemInstruction(null));
+    }
+
+    [Fact]
+    public void BuildContents_RendersCustomerPreferredLanguage()
+    {
+        var text = RenderedText(BasicContext());
+
+        Assert.Contains("language: vi", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildContents_NonVietnameseLanguage_RendersThatLanguageInstead()
+    {
+        var context = BasicContext() with { Language = "en" };
+
+        Assert.Contains("language: en", RenderedText(context), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void BuildContents_Interactions_IncludesMaskedFieldsNotRawPlaceholderText()
     {

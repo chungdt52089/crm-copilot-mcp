@@ -820,5 +820,97 @@ public class EmailToolsTests
             () => tools.GenerateEmail("CUS-0001", "objective", cancellationToken: cts.Token));
     }
 
+    // ---- P0-08: unaccented-Vietnamese detection (locale vi), routed through the existing retry ----
+
+    /// <summary>Reproduces the exact P0-08 live shape: grammatical but fully unaccented Vietnamese
+    /// prose that still carries the {{CUSTOMER_NAME}} placeholder and quotes an accented product
+    /// name — so neither the restored name nor the quoted evidence may mask the unaccented prose.</summary>
+    private const string UnaccentedBody =
+        "Kinh gui {{CUSTOMER_NAME}}, chung toi xin gui thong tin tham khao ve san pham Tiền gửi kỳ hạn 6 tháng. " +
+        "Day la thong tin duoc tong hop tu ho so hien co cua quy khach, mong quy khach danh chut thoi gian xem qua " +
+        "va phan hoi lai thoi gian phu hop de chung toi lien he tu van chi tiet hon.";
+
+    private const string AccentedBody =
+        "Kính gửi {{CUSTOMER_NAME}}, chúng tôi xin gửi thông tin tham khảo về sản phẩm tiền gửi kỳ hạn 6 tháng. " +
+        "Đây là thông tin được tổng hợp từ hồ sơ hiện có của quý khách, mong quý khách dành chút thời gian xem qua " +
+        "và phản hồi lại thời gian phù hợp để chúng tôi liên hệ tư vấn chi tiết hơn.";
+
+    [Fact]
+    public async Task GenerateEmail_UnaccentedVietnameseBody_TriggersExactlyOneRetryThenSucceeds()
+    {
+        var (tools, _, _, generator, _) = CreateTools();
+        generator.Results.Enqueue(ValidRaw(body: UnaccentedBody));
+        generator.Results.Enqueue(ValidRaw(body: AccentedBody));
+
+        var result = await tools.GenerateEmail(
+            "CUS-0001", "Follow-up gửi tiết kiệm 6 tháng", cancellationToken: TestContext.Current.CancellationToken);
+
+        var root = Parse(result);
+        Assert.Equal(McpToolStatus.Success, root.GetProperty("status").GetString());
+        Assert.Equal(2, generator.CallCount); // rejected once, accepted on the single allowed retry
+        var body = root.GetProperty("data").GetProperty("draft").GetProperty("body").GetString();
+        Assert.Contains("Kính gửi", body!, StringComparison.Ordinal);
+        Assert.DoesNotContain("Kinh gui", body!, StringComparison.Ordinal);
+        // The retry carried the corrective instruction naming the defect.
+        Assert.Contains("KHÔNG DẤU", generator.LastContext!.CorrectiveInstruction!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GenerateEmail_UnaccentedVietnameseOnBothAttempts_FailsWithModelErrorNotADraft()
+    {
+        var (tools, _, _, generator, _) = CreateTools();
+        generator.Results.Enqueue(ValidRaw(body: UnaccentedBody));
+        generator.Results.Enqueue(ValidRaw(body: UnaccentedBody));
+
+        var result = await tools.GenerateEmail(
+            "CUS-0001", "Follow-up gửi tiết kiệm 6 tháng", cancellationToken: TestContext.Current.CancellationToken);
+
+        var root = Parse(result);
+        Assert.Equal(McpToolStatus.Error, root.GetProperty("status").GetString());
+        Assert.Equal(McpToolErrorCode.ModelError, root.GetProperty("error").GetProperty("code").GetString());
+        Assert.Equal(2, generator.CallCount); // never a third attempt
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("data").ValueKind);
+    }
+
+    [Fact]
+    public async Task GenerateEmail_ProperlyAccentedVietnamese_NeverTriggersRetry()
+    {
+        var (tools, _, _, generator, _) = CreateTools();
+        generator.Results.Enqueue(ValidRaw(body: AccentedBody));
+
+        var result = await tools.GenerateEmail(
+            "CUS-0001", "Follow-up gửi tiết kiệm 6 tháng", cancellationToken: TestContext.Current.CancellationToken);
+
+        var root = Parse(result);
+        Assert.Equal(McpToolStatus.Success, root.GetProperty("status").GetString());
+        Assert.Equal(1, generator.CallCount);
+        Assert.Null(generator.LastContext!.CorrectiveInstruction);
+    }
+
+    [Fact]
+    public async Task GenerateEmail_ShortUnaccentedBody_IsNotFlagged_NoFalsePositiveOnTooLittleSignal()
+    {
+        var (tools, _, _, generator, _) = CreateTools();
+        generator.Results.Enqueue(ValidRaw(body: "Kinh gui {{CUSTOMER_NAME}}, cam on quy khach."));
+
+        var result = await tools.GenerateEmail(
+            "CUS-0001", "Follow-up", cancellationToken: TestContext.Current.CancellationToken);
+
+        var root = Parse(result);
+        Assert.Equal(McpToolStatus.Success, root.GetProperty("status").GetString());
+        Assert.Equal(1, generator.CallCount);
+    }
+
+    [Fact]
+    public async Task GenerateEmail_PromptContextCarriesCustomerPreferredLanguage()
+    {
+        var (tools, _, _, generator, _) = CreateTools();
+        generator.Results.Enqueue(ValidRaw(body: AccentedBody));
+
+        await tools.GenerateEmail("CUS-0001", "Follow-up", cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal("vi", generator.LastContext!.Language);
+    }
+
     // ---- ✏️7: ReadOnly annotation is verified at the protocol level (McpToolProtocolTests) ----
 }

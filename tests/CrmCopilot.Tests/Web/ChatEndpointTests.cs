@@ -6,6 +6,7 @@ using CrmCopilot.Contracts.Crm;
 using CrmCopilot.Contracts.Crm.Exceptions;
 using CrmCopilot.Contracts.Knowledge;
 using CrmCopilot.Contracts.Knowledge.Exceptions;
+using CrmCopilot.McpServer.Email;
 using CrmCopilot.Tests.TestSupport;
 using CrmCopilot.Tests.Web.TestSupport;
 using CrmCopilot.Web.Chat;
@@ -61,9 +62,11 @@ public class ChatEndpointTests
     {
         await using var harness = await ChatTestHarness.CreateAsync(TestContext.Current.CancellationToken);
         harness.CrmGateway.FindCustomerResult = CustomerLookupResult.Found(Cus0001);
+        // No TextResponse is enqueued: get_customer is terminal (P0-08), so the Host returns
+        // immediately and never asks Gemini for a completion. If the early return ever regressed,
+        // FakeGeminiChatClient would throw "no more scripted responses" and fail this test loudly.
         harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
             "get_customer", new Dictionary<string, object> { ["customerId"] = "CUS-0001" }));
-        harness.ChatClient.Enqueue(FakeGeminiChatClient.TextResponse("Đã tìm thấy khách hàng CUS-0001."));
 
         var (response, body) = await PostChatAsync(harness.CreateWebClient(), "Tìm khách hàng CUS-0001");
 
@@ -74,6 +77,8 @@ public class ChatEndpointTests
         Assert.Single(body.ToolTrace);
         Assert.Equal("get_customer", body.ToolTrace[0].ToolName);
         Assert.Equal("success", body.ToolTrace[0].Status);
+        Assert.Equal(1, harness.ChatClient.CallCount);
+        Assert.Equal("Đã tải hồ sơ khách hàng CUS-0001. Xem dữ liệu chi tiết bên dưới.", body.Reply);
     }
 
     // --- 2. Interaction lookup ---
@@ -84,7 +89,6 @@ public class ChatEndpointTests
         harness.CrmGateway.InteractionsResult = [Int0001];
         harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
             "get_interactions", new Dictionary<string, object> { ["customerId"] = "CUS-0001", ["limit"] = 5 }));
-        harness.ChatClient.Enqueue(FakeGeminiChatClient.TextResponse("Đây là các tương tác gần đây."));
 
         var (_, body) = await PostChatAsync(harness.CreateWebClient(), "Xem các tương tác gần đây của CUS-0001");
 
@@ -93,11 +97,16 @@ public class ChatEndpointTests
         Assert.Contains("crm:interaction:INT-0001", body.SourceIds);
         Assert.Equal("CUS-0001", harness.CrmGateway.LastInteractionsCustomerId);
         Assert.Equal(5, harness.CrmGateway.LastInteractionsLimit);
+        Assert.Single(body.ToolTrace);
+        Assert.Equal(1, harness.ChatClient.CallCount);
+        Assert.Equal("Đã tải 1 tương tác gần nhất của khách hàng CUS-0001. Xem dữ liệu chi tiết bên dưới.", body.Reply);
     }
 
-    // --- 3. Two-tool turn: CRM lookup + knowledge search, reply grounded only in knowledge ---
+    // --- 3. P0-08 terminal-tool rule: a successful get_customer ends the turn immediately — a
+    // second tool the model also asked for is never dispatched, and no second Gemini completion is
+    // requested. (Before P0-08 this scenario ran both tools; the rule change is deliberate.) ---
     [Fact]
-    public async Task TwoToolTurn_ReplyGroundedOnlyInKnowledgeContent_CustomerDataStillInResponse()
+    public async Task CustomerLookupThenKnowledgeRequest_TerminatesAfterCustomerLookup_SecondToolNeverDispatched()
     {
         await using var harness = await ChatTestHarness.CreateAsync(TestContext.Current.CancellationToken);
         harness.CrmGateway.FindCustomerResult = CustomerLookupResult.Found(Cus0001);
@@ -106,25 +115,27 @@ public class ChatEndpointTests
             "get_customer", new Dictionary<string, object> { ["customerId"] = "CUS-0001" }));
         harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
             "search_product_knowledge", new Dictionary<string, object> { ["query"] = "gửi tiết kiệm an toàn kỳ hạn 6 tháng" }));
-        harness.ChatClient.Enqueue(FakeGeminiChatClient.TextResponse("Gợi ý sản phẩm PRD-SAV-006M phù hợp với nhu cầu tiết kiệm an toàn."));
 
         var (_, body) = await PostChatAsync(harness.CreateWebClient(), "Khách hàng CUS-0001 quan tâm gửi tiết kiệm, gợi ý sản phẩm phù hợp");
 
         Assert.Equal(ChatTurnStatus.Success, body.Status);
+        Assert.Equal("CUS-0001", body.Data?.Customer?.Id);
+        Assert.Contains("crm:customer:CUS-0001", body.SourceIds);
+
+        // The turn stopped at the terminal tool: exactly one Gemini call, one trace entry, and the
+        // knowledge retriever was never reached despite the model scripting a call to it.
+        Assert.Equal(1, harness.ChatClient.CallCount);
+        Assert.Single(body.ToolTrace);
+        Assert.Equal("get_customer", body.ToolTrace[0].ToolName);
+        Assert.Null(harness.KnowledgeRetriever.LastQuery);
+        Assert.Null(body.Data?.KnowledgeMatches);
+
+        // The deterministic reply carries no customer PII.
         Assert.NotNull(body.Reply);
         Assert.DoesNotContain(Cus0001.FullName, body.Reply, StringComparison.Ordinal);
         Assert.DoesNotContain(Cus0001.Email, body.Reply, StringComparison.Ordinal);
         Assert.DoesNotContain(Cus0001.Phone, body.Reply, StringComparison.Ordinal);
-        Assert.Equal("CUS-0001", body.Data?.Customer?.Id);
-        Assert.Contains("crm:customer:CUS-0001", body.SourceIds);
-        Assert.Contains("kb:product:PRD-SAV-006M", body.SourceIds);
-
-        // D1: the FunctionResponse sent back to Gemini after get_customer must never contain raw PII.
-        var secondCallContents = harness.ChatClient.CapturedContents[1];
-        var serializedHistory = JsonSerializer.Serialize(secondCallContents.Select(c => c.Parts));
-        Assert.DoesNotContain(Cus0001.Email, serializedHistory, StringComparison.Ordinal);
-        Assert.DoesNotContain(Cus0001.Phone, serializedHistory, StringComparison.Ordinal);
-        Assert.DoesNotContain(Cus0001.AccountReference, serializedHistory, StringComparison.Ordinal);
+        Assert.DoesNotContain(Cus0001.AccountReference, body.Reply, StringComparison.Ordinal);
     }
 
     // --- 4. Unknown customer (not_found) — deterministic, no second Gemini call (D1) ---
@@ -140,8 +151,47 @@ public class ChatEndpointTests
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         Assert.Equal(ChatTurnStatus.NotFound, body.Status);
-        Assert.Null(body.Reply);
         Assert.Equal(1, harness.ChatClient.CallCount);
+        // P0-08: the deterministic not-found reply names the id that was actually looked up, so the
+        // UI can never leave it ambiguous which customer the message refers to.
+        Assert.Equal("Không tìm thấy khách hàng CUS-9999.", body.Reply);
+        Assert.Null(body.Data);
+    }
+
+    // --- 4b. P0-08 live finding: looking up a non-existent id mid-conversation must name that id,
+    // must NOT clear the session's active customer, and must not carry the previous customer's data. ---
+    [Fact]
+    public async Task UnknownCustomerMidConversation_NamesRequestedId_KeepsActiveCustomerForFollowUps()
+    {
+        await using var harness = await ChatTestHarness.CreateAsync(TestContext.Current.CancellationToken);
+        var sessionId = Guid.NewGuid().ToString();
+        var client = harness.CreateWebClient();
+
+        harness.CrmGateway.FindCustomerResult = CustomerLookupResult.Found(Cus0001);
+        harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
+            "get_customer", new Dictionary<string, object> { ["customerId"] = "CUS-0001" }));
+        await PostChatAsync(client, "Tìm hồ sơ khách hàng CUS-0001.", sessionId);
+
+        harness.CrmGateway.FindCustomerResult = CustomerLookupResult.NotFound;
+        harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
+            "get_customer", new Dictionary<string, object> { ["customerId"] = "CUS-9999" }));
+        var (response, body) = await PostChatAsync(client, "Tìm khách hàng CUS-9999.", sessionId);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("Không tìm thấy khách hàng CUS-9999.", body.Reply);
+        Assert.DoesNotContain("CUS-0001", body.Reply!, StringComparison.Ordinal);
+        Assert.Null(body.Data);
+        Assert.DoesNotContain(Cus0001.FullName, JsonSerializer.Serialize(body), StringComparison.Ordinal);
+
+        // The failed lookup must not clear the active customer — a follow-up still resolves.
+        harness.CrmGateway.InteractionsResult = [Int0001];
+        harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse("get_interactions"));
+        var (followUpResponse, followUpBody) = await PostChatAsync(
+            client, "Khách hàng này có tương tác gì gần đây?", sessionId);
+
+        Assert.Equal(HttpStatusCode.OK, followUpResponse.StatusCode);
+        Assert.Equal(ChatTurnStatus.Success, followUpBody.Status);
+        Assert.Equal("CUS-0001", harness.CrmGateway.LastInteractionsCustomerId);
     }
 
     // --- 6. Extra MCP tool present but not approved — never exposed to Gemini (D5) ---
@@ -155,11 +205,12 @@ public class ChatEndpointTests
 
         var sentTools = harness.ChatClient.CapturedConfigs[0].Tools;
         var declarations = Assert.Single(sentTools!).FunctionDeclarations!;
-        Assert.Equal(3, declarations.Count);
+        Assert.Equal(4, declarations.Count);
         Assert.DoesNotContain(declarations, d => d.Name == "delete_customer");
         Assert.Contains(declarations, d => d.Name == "get_customer");
         Assert.Contains(declarations, d => d.Name == "get_interactions");
         Assert.Contains(declarations, d => d.Name == "search_product_knowledge");
+        Assert.Contains(declarations, d => d.Name == "generate_email");
     }
 
     // --- 7. Hallucinated unknown tool name — rejected before any MCP call ---
@@ -177,66 +228,83 @@ public class ChatEndpointTests
         Assert.Null(harness.KnowledgeRetriever.LastQuery);
     }
 
-    // --- 8. Duplicate identical tool+args — the exact shape of the live P0-05 acceptance finding:
-    // get_customer succeeds once, Gemini's next turn asks for the identical call again. The guard
-    // must still block the 2nd MCP call (unchanged), AND the resulting error must not leak the
-    // already-fetched customer's raw PII (this was the live finding's actual bug). ---
+    // --- 8. Duplicate identical tool+args. Since P0-08 the three structured CRM tools are terminal
+    // (a successful one ends the turn before Gemini could ever repeat it), so the only tool that can
+    // still reach this guard is search_product_knowledge — exercised here. Data must still be null
+    // on the resulting controlled error. ---
     [Fact]
-    public async Task DuplicateToolCall_RejectedOnSecondIdenticalRequest_ErrorResponseCarriesNoAccumulatedPii()
+    public async Task DuplicateToolCall_RejectedOnSecondIdenticalRequest_ErrorResponseCarriesNoAccumulatedData()
     {
         await using var harness = await ChatTestHarness.CreateAsync(TestContext.Current.CancellationToken);
-        harness.CrmGateway.FindCustomerResult = CustomerLookupResult.Found(Cus0001);
+        harness.KnowledgeRetriever.SearchResult = KnowledgeSearchResult.Found([SavingsMatch()]);
         harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
-            "get_customer", new Dictionary<string, object> { ["customerId"] = "CUS-0001" }));
+            "search_product_knowledge", new Dictionary<string, object> { ["query"] = "tiết kiệm 6 tháng" }));
         harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
-            "get_customer", new Dictionary<string, object> { ["customerId"] = "CUS-0001" }));
+            "search_product_knowledge", new Dictionary<string, object> { ["query"] = "tiết kiệm 6 tháng" }));
 
-        var (response, body) = await PostChatAsync(harness.CreateWebClient(), "Tìm khách hàng CUS-0001");
+        var (_, body) = await PostChatAsync(harness.CreateWebClient(), "Sản phẩm tiết kiệm 6 tháng có đặc điểm gì?");
 
         // Guard still fires — exactly one real MCP call happened (2 Gemini calls: 1st succeeds,
         // 2nd is rejected as a duplicate before ever reaching MCP again).
         Assert.Equal(ChatTurnErrorCode.DuplicateToolCall, body.Error?.Code);
         Assert.Equal(2, harness.ChatClient.CallCount);
-
-        // Fix for the live finding: Data must be null on a controlled error — never the earlier
-        // successful call's raw CustomerDto.
+        Assert.Single(body.ToolTrace);
         Assert.Null(body.Data);
-        var bodyText = JsonSerializer.Serialize(body);
-        Assert.DoesNotContain(Cus0001.FullName, bodyText, StringComparison.Ordinal);
-        Assert.DoesNotContain(Cus0001.Email, bodyText, StringComparison.Ordinal);
-        Assert.DoesNotContain(Cus0001.Phone, bodyText, StringComparison.Ordinal);
-        Assert.DoesNotContain(Cus0001.AccountReference, bodyText, StringComparison.Ordinal);
-        Assert.DoesNotContain(Cus0001.City, bodyText, StringComparison.Ordinal);
     }
 
-    // --- New: the exact live-finding fix — a successful get_customer call's minimized
-    // FunctionResponse must include a non-PII customerId (not just a bare status ack), and Gemini
-    // seeing it must be able to produce a final reply instead of repeating the call. ---
+    // --- 8b. The live P0-05 finding's own scenario (get_customer requested twice) is now
+    // structurally unreachable: the first success terminates the turn, so no duplicate can occur
+    // and no accumulated CustomerDto can ever ride along in an error response. ---
     [Fact]
-    public async Task CustomerLookup_MinimizedFunctionResponseIncludesCustomerId_GeminiCanProduceFinalReply()
+    public async Task RepeatedGetCustomerRequest_UnreachableSinceFirstSuccessTerminatesTurn()
     {
         await using var harness = await ChatTestHarness.CreateAsync(TestContext.Current.CancellationToken);
         harness.CrmGateway.FindCustomerResult = CustomerLookupResult.Found(Cus0001);
         harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
             "get_customer", new Dictionary<string, object> { ["customerId"] = "CUS-0001" }));
-        harness.ChatClient.Enqueue(FakeGeminiChatClient.TextResponse("Đã tìm thấy khách hàng CUS-0001."));
+        harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
+            "get_customer", new Dictionary<string, object> { ["customerId"] = "CUS-0001" }));
 
         var (response, body) = await PostChatAsync(harness.CreateWebClient(), "Tìm khách hàng CUS-0001");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(ChatTurnStatus.Success, body.Status);
-        Assert.Equal(2, harness.ChatClient.CallCount);
+        Assert.Null(body.Error);
+        Assert.Equal(1, harness.ChatClient.CallCount);
+        Assert.Single(body.ToolTrace);
 
-        // Inspect exactly what the 2nd Gemini call received as the FunctionResponse payload.
-        var secondCallContents = harness.ChatClient.CapturedContents[1];
-        var functionResponsePart = secondCallContents[^1].Parts!.Single();
-        var functionResponseJson = JsonSerializer.Serialize(functionResponsePart.FunctionResponse!.Response);
-        Assert.Contains("\"status\":\"success\"", functionResponseJson, StringComparison.Ordinal);
-        Assert.Contains("CUS-0001", functionResponseJson, StringComparison.Ordinal);
-        Assert.DoesNotContain(Cus0001.FullName, functionResponseJson, StringComparison.Ordinal);
-        Assert.DoesNotContain(Cus0001.Email, functionResponseJson, StringComparison.Ordinal);
-        Assert.DoesNotContain(Cus0001.Phone, functionResponseJson, StringComparison.Ordinal);
-        Assert.DoesNotContain(Cus0001.AccountReference, functionResponseJson, StringComparison.Ordinal);
+        // The successful response legitimately carries the CustomerDto for the UI card, but the
+        // model-facing side never saw it and the reply itself stays PII-free.
+        Assert.Equal("CUS-0001", body.Data?.Customer?.Id);
+        Assert.DoesNotContain(Cus0001.FullName, body.Reply!, StringComparison.Ordinal);
+    }
+
+    // --- P0-08 supersedes the P0-05 minimized-FunctionResponse behaviour for get_customer: the
+    // Host now returns before building any FunctionResponse at all, so no get_customer result — not
+    // even the minimized, non-PII one — is ever sent to Gemini. Strictly stronger than the old
+    // "minimized payload contains no PII" guarantee it replaces. ---
+    [Fact]
+    public async Task CustomerLookup_NeverSendsAnyFunctionResponseBackToGemini()
+    {
+        await using var harness = await ChatTestHarness.CreateAsync(TestContext.Current.CancellationToken);
+        harness.CrmGateway.FindCustomerResult = CustomerLookupResult.Found(Cus0001);
+        harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
+            "get_customer", new Dictionary<string, object> { ["customerId"] = "CUS-0001" }));
+
+        var (response, body) = await PostChatAsync(harness.CreateWebClient(), "Tìm khách hàng CUS-0001");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(ChatTurnStatus.Success, body.Status);
+        Assert.Equal(1, harness.ChatClient.CallCount);
+
+        // Everything Gemini ever saw this turn — a single call carrying only the user's own message.
+        var everythingSentToGemini = JsonSerializer.Serialize(
+            harness.ChatClient.CapturedContents.Select(contents => contents.Select(c => c.Parts)));
+        Assert.DoesNotContain("functionResponse", everythingSentToGemini, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(Cus0001.FullName, everythingSentToGemini, StringComparison.Ordinal);
+        Assert.DoesNotContain(Cus0001.Email, everythingSentToGemini, StringComparison.Ordinal);
+        Assert.DoesNotContain(Cus0001.Phone, everythingSentToGemini, StringComparison.Ordinal);
+        Assert.DoesNotContain(Cus0001.AccountReference, everythingSentToGemini, StringComparison.Ordinal);
     }
 
     // --- 9. Multiple function calls in one Gemini turn — rejected outright (D8) ---
@@ -255,25 +323,22 @@ public class ChatEndpointTests
         Assert.Null(harness.CrmGateway.LastLookupQuery);
     }
 
-    // --- 10. Always-request-another-tool — bounded at 3 MCP calls, 4th Gemini call still happens ---
+    // --- 10. Always-request-another-tool — bounded at 3 MCP calls, 4th Gemini call still happens.
+    // Uses search_product_knowledge throughout: since P0-08 it is the only non-terminal tool, so it
+    // is the only one that can drive the loop far enough to reach the bound. ---
     [Fact]
     public async Task AlwaysRequestsAnotherTool_StopsAtThreeMcpCalls_FourthGeminiCallRejectsIt()
     {
         await using var harness = await ChatTestHarness.CreateAsync(TestContext.Current.CancellationToken);
-        harness.CrmGateway.FindCustomerResult = CustomerLookupResult.Found(Cus0001);
-        harness.CrmGateway.InteractionsResult = [Int0001];
         harness.KnowledgeRetriever.SearchResult = KnowledgeSearchResult.Found([SavingsMatch()]);
 
-        harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
-            "get_customer", new Dictionary<string, object> { ["customerId"] = "CUS-0001" }));
-        harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
-            "get_interactions", new Dictionary<string, object> { ["customerId"] = "CUS-0001", ["limit"] = 5 }));
-        harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
-            "search_product_knowledge", new Dictionary<string, object> { ["query"] = "truy vấn A" }));
-        harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
-            "search_product_knowledge", new Dictionary<string, object> { ["query"] = "truy vấn B (khác truy vấn A)" }));
+        foreach (var query in new[] { "truy vấn A", "truy vấn B", "truy vấn C", "truy vấn D" })
+        {
+            harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
+                "search_product_knowledge", new Dictionary<string, object> { ["query"] = query }));
+        }
 
-        var (_, body) = await PostChatAsync(harness.CreateWebClient(), "Tìm khách hàng CUS-0001");
+        var (_, body) = await PostChatAsync(harness.CreateWebClient(), "Sản phẩm tiết kiệm 6 tháng có đặc điểm gì?");
 
         Assert.Equal(ChatTurnErrorCode.ToolLoopLimitExceeded, body.Error?.Code);
         Assert.Equal(4, harness.ChatClient.CallCount);
@@ -285,23 +350,20 @@ public class ChatEndpointTests
     public async Task ExactlyThreeToolsThenFinalText_SucceedsWithFourGeminiCallsThreeMcpCalls()
     {
         await using var harness = await ChatTestHarness.CreateAsync(TestContext.Current.CancellationToken);
-        harness.CrmGateway.FindCustomerResult = CustomerLookupResult.Found(Cus0001);
-        harness.CrmGateway.InteractionsResult = [Int0001];
         harness.KnowledgeRetriever.SearchResult = KnowledgeSearchResult.Found([SavingsMatch()]);
 
-        harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
-            "get_customer", new Dictionary<string, object> { ["customerId"] = "CUS-0001" }));
-        harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
-            "get_interactions", new Dictionary<string, object> { ["customerId"] = "CUS-0001", ["limit"] = 5 }));
-        harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
-            "search_product_knowledge", new Dictionary<string, object> { ["query"] = "truy vấn A" }));
+        foreach (var query in new[] { "truy vấn A", "truy vấn B", "truy vấn C" })
+        {
+            harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
+                "search_product_knowledge", new Dictionary<string, object> { ["query"] = query }));
+        }
         harness.ChatClient.Enqueue(FakeGeminiChatClient.TextResponse("Đã tổng hợp đầy đủ thông tin."));
 
-        var (response, body) = await PostChatAsync(harness.CreateWebClient(), "Tìm khách hàng CUS-0001");
+        var (response, body) = await PostChatAsync(harness.CreateWebClient(), "Sản phẩm tiết kiệm 6 tháng có đặc điểm gì?");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(ChatTurnStatus.Success, body.Status);
-        Assert.NotNull(body.Reply);
+        Assert.Equal("Đã tổng hợp đầy đủ thông tin.", body.Reply);
         Assert.Equal(4, harness.ChatClient.CallCount);
         Assert.Equal(3, body.ToolTrace.Count);
     }
@@ -485,5 +547,322 @@ public class ChatEndpointTests
         Assert.Equal(1, chatClient.CallCount);
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
         Assert.Equal(ChatTurnErrorCode.McpUnavailable, body.Error?.Code);
+    }
+
+    private static RawEmailDraftModel ValidRawDraft(string subject = "Thông tin gửi tiết kiệm 6 tháng") => new(
+        RawEmailDraftModel.StatusOk,
+        subject,
+        "Kính gửi {{CUSTOMER_NAME}}, đây là thông tin tham khảo về gửi tiết kiệm 6 tháng.",
+        "PRD-SAV-006M",
+        ["kb:product:PRD-SAV-006M"],
+        true,
+        []);
+
+    // --- 21. generate_email (P0-08): canonical success surfaced through /api/chat ---
+    [Fact]
+    public async Task EmailDraftRequest_CallsGenerateEmail_ReturnsEmailDraftData()
+    {
+        await using var harness = await ChatTestHarness.CreateAsync(TestContext.Current.CancellationToken);
+        harness.CrmGateway.FindCustomerResult = CustomerLookupResult.Found(Cus0001);
+        harness.CrmGateway.InteractionsResult = [Int0001];
+        harness.KnowledgeRetriever.SearchResult = KnowledgeSearchResult.Found([SavingsMatch()]);
+        harness.EmailDraftGenerator.Results.Enqueue(ValidRawDraft());
+        harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
+            "generate_email", new Dictionary<string, object> { ["customerId"] = "CUS-0001", ["objective"] = "Follow-up gửi tiết kiệm 6 tháng" }));
+
+        var (response, body) = await PostChatAsync(harness.CreateWebClient(), "Soạn email follow-up về tiết kiệm 6 tháng cho khách hàng CUS-0001");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(ChatTurnStatus.Success, body.Status);
+        Assert.NotNull(body.Data?.EmailDraft);
+        Assert.True(body.Data!.EmailDraft!.RequiresHumanApproval);
+        Assert.Equal("PRD-SAV-006M", body.Data.EmailDraft.SuggestedProductCode);
+        Assert.Contains("kb:product:PRD-SAV-006M", body.Data.EmailDraft.SourceIds);
+        Assert.Contains(body.ToolTrace, t => t.ToolName == "generate_email" && t.Status == "success");
+
+        // generate_email is terminal: deterministic approval reply, exactly one Gemini call.
+        Assert.Equal(1, harness.ChatClient.CallCount);
+        Assert.Equal("Đã tạo email nháp cho khách hàng CUS-0001. Bản nháp cần RM kiểm tra và phê duyệt.", body.Reply);
+    }
+
+    // --- 22. generate_email: the minimized FunctionResponse must never carry the placeholder-
+    // restored customer name or the draft's own subject/body text back into Gemini's context (P0-08 D1). ---
+    [Fact]
+    public async Task EmailDraftRequest_MinimizedFunctionResponseNeverContainsRestoredCustomerNameOrDraftText()
+    {
+        await using var harness = await ChatTestHarness.CreateAsync(TestContext.Current.CancellationToken);
+        harness.CrmGateway.FindCustomerResult = CustomerLookupResult.Found(Cus0001);
+        harness.CrmGateway.InteractionsResult = [Int0001];
+        harness.KnowledgeRetriever.SearchResult = KnowledgeSearchResult.Found([SavingsMatch()]);
+        harness.EmailDraftGenerator.Results.Enqueue(ValidRawDraft());
+        harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
+            "generate_email", new Dictionary<string, object> { ["customerId"] = "CUS-0001", ["objective"] = "Follow-up gửi tiết kiệm 6 tháng" }));
+
+        var (_, body) = await PostChatAsync(harness.CreateWebClient(), "Soạn email follow-up về tiết kiệm 6 tháng cho khách hàng CUS-0001");
+
+        // Terminal rule: no FunctionResponse is ever built for generate_email, so the restored
+        // customer name and the draft's own subject/body never re-enter Gemini's context at all.
+        Assert.Equal(1, harness.ChatClient.CallCount);
+        var everythingSentToGemini = JsonSerializer.Serialize(
+            harness.ChatClient.CapturedContents.Select(contents => contents.Select(c => c.Parts)));
+        Assert.DoesNotContain("functionResponse", everythingSentToGemini, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(Cus0001.FullName, everythingSentToGemini, StringComparison.Ordinal);
+        Assert.DoesNotContain("Thông tin gửi tiết kiệm 6 tháng", everythingSentToGemini, StringComparison.Ordinal);
+        Assert.DoesNotContain("đây là thông tin tham khảo", everythingSentToGemini, StringComparison.Ordinal);
+
+        // The deterministic reply likewise carries neither the draft text nor the customer's name.
+        Assert.DoesNotContain(Cus0001.FullName, body.Reply!, StringComparison.Ordinal);
+        Assert.DoesNotContain("Thông tin gửi tiết kiệm 6 tháng", body.Reply!, StringComparison.Ordinal);
+    }
+
+    // --- 23. generate_email without an explicit customerId — resolves from session state
+    // (mirrors docs/11 demo script step 3: "...cho khách hàng này", no repeated ID). ---
+    [Fact]
+    public async Task GenerateEmailWithoutExplicitCustomerId_ResolvesFromSessionState_MatchesDemoStep3()
+    {
+        await using var harness = await ChatTestHarness.CreateAsync(TestContext.Current.CancellationToken);
+        var sessionId = Guid.NewGuid().ToString();
+        var client = harness.CreateWebClient();
+        harness.CrmGateway.FindCustomerResult = CustomerLookupResult.Found(Cus0001);
+        harness.CrmGateway.InteractionsResult = [Int0001];
+        harness.KnowledgeRetriever.SearchResult = KnowledgeSearchResult.Found([SavingsMatch()]);
+
+        harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
+            "get_customer", new Dictionary<string, object> { ["customerId"] = "CUS-0001" }));
+        await PostChatAsync(client, "Tìm khách hàng CUS-0001", sessionId);
+
+        harness.EmailDraftGenerator.Results.Enqueue(ValidRawDraft());
+        harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
+            "generate_email", new Dictionary<string, object> { ["objective"] = "Follow-up tiết kiệm 6 tháng" }));
+        var (response, body) = await PostChatAsync(client, "Soạn email follow-up ngắn gọn về tiết kiệm 6 tháng cho khách hàng này", sessionId);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotNull(body.Data?.EmailDraft);
+        // Proves the P0-06 fallback actually reached EmailTools with the resolved id: EmailTools
+        // itself calls GetInteractionsAsync(customerId, ...) internally, and this turn's Gemini
+        // call omitted customerId entirely, so this can only be "CUS-0001" via session-state resolution.
+        Assert.Equal("CUS-0001", harness.CrmGateway.LastInteractionsCustomerId);
+    }
+
+    // --- 24. generate_email: RagNoEvidence path — 404 not_found, Data entirely null, Error null,
+    // proving the "Data is null on any non-success status" invariant holds for this tool too. ---
+    [Fact]
+    public async Task GenerateEmail_RagNoEvidence_ReturnsNotFoundWithNullDataAndNullError()
+    {
+        await using var harness = await ChatTestHarness.CreateAsync(TestContext.Current.CancellationToken);
+        harness.CrmGateway.FindCustomerResult = CustomerLookupResult.Found(Cus0001);
+        harness.CrmGateway.InteractionsResult = [Int0001];
+        harness.KnowledgeRetriever.SearchResult = KnowledgeSearchResult.NoRelevantEvidence;
+        harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
+            "generate_email", new Dictionary<string, object> { ["customerId"] = "CUS-0001", ["objective"] = "Follow-up" }));
+
+        var (response, body) = await PostChatAsync(harness.CreateWebClient(), "Soạn email cho khách hàng CUS-0001");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(ChatTurnStatus.NotFound, body.Status);
+        Assert.Null(body.Data);
+        Assert.Null(body.Error);
+
+        // RAG no-evidence must NOT reuse the customer-not-found wording — the customer exists here;
+        // what is missing is product/template evidence.
+        Assert.NotNull(body.Reply);
+        Assert.DoesNotContain("Không tìm thấy khách hàng", body.Reply!, StringComparison.Ordinal);
+        Assert.Contains("Không đủ dữ liệu sản phẩm", body.Reply!, StringComparison.Ordinal);
+    }
+
+    // --- 25. Direct regression for the P0-08 live acceptance failure. Reproduces the exact reported
+    // turn-2 shape: after get_interactions succeeds the model asks for a redundant get_customer and
+    // would then narrate fabricated content ("Nguyễn Văn An", health insurance). Neither may happen. ---
+    [Fact]
+    public async Task InteractionsTurn_RedundantFollowUpToolAndHallucinatedNarration_AreBothSuppressed()
+    {
+        await using var harness = await ChatTestHarness.CreateAsync(TestContext.Current.CancellationToken);
+        var sessionId = Guid.NewGuid().ToString();
+        var client = harness.CreateWebClient();
+        harness.CrmGateway.FindCustomerResult = CustomerLookupResult.Found(Cus0001);
+
+        // Turn 1 — establishes CurrentCustomerId.
+        harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
+            "get_customer", new Dictionary<string, object> { ["customerId"] = "CUS-0001" }));
+        await PostChatAsync(client, "Tìm hồ sơ khách hàng CUS-0001.", sessionId);
+
+        // Turn 2 — the model omits customerId, then (as it did live) asks for a redundant
+        // get_customer and finally narrates content it never actually received.
+        harness.CrmGateway.InteractionsResult = [Int0001];
+        harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse("get_interactions"));
+        harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
+            "get_customer", new Dictionary<string, object> { ["customerId"] = "CUS-0001" }));
+        harness.ChatClient.Enqueue(FakeGeminiChatClient.TextResponse(
+            "Khách hàng Nguyễn Văn An quan tâm bảo hiểm sức khỏe và điều trị quốc tế, cần tư vấn lựa chọn gói."));
+
+        var (response, body) = await PostChatAsync(client, "Khách hàng này có những tương tác gần nhất nào?", sessionId);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(ChatTurnStatus.Success, body.Status);
+
+        // The turn ended at get_interactions: exactly one trace entry, one Gemini call for this turn
+        // (2 total across both turns), and the redundant get_customer never dispatched.
+        Assert.Single(body.ToolTrace);
+        Assert.Equal("get_interactions", body.ToolTrace[0].ToolName);
+        Assert.Equal(2, harness.ChatClient.CallCount);
+
+        // Session state was used, not a model guess.
+        Assert.Equal("CUS-0001", harness.CrmGateway.LastInteractionsCustomerId);
+
+        // The hallucinated narration was never adopted.
+        Assert.Equal("Đã tải 1 tương tác gần nhất của khách hàng CUS-0001. Xem dữ liệu chi tiết bên dưới.", body.Reply);
+        Assert.DoesNotContain("Nguyễn Văn An", body.Reply!, StringComparison.Ordinal);
+        Assert.DoesNotContain("bảo hiểm", body.Reply!, StringComparison.Ordinal);
+        Assert.DoesNotContain(Cus0001.FullName, body.Reply!, StringComparison.Ordinal);
+        Assert.DoesNotContain(Int0001.Summary, body.Reply!, StringComparison.Ordinal);
+
+        // Structured data stays complete and accurate — the cards remain the data surface.
+        Assert.NotNull(body.Data?.Interactions);
+        Assert.Equal("INT-0001", body.Data!.Interactions![0].Id);
+        Assert.Equal(Int0001.Summary, body.Data.Interactions[0].Summary);
+        Assert.Contains("crm:interaction:INT-0001", body.SourceIds);
+    }
+
+    // --- 27. P0-08 live turn-3 failure: Gemini emitted search_product_knowledge AND generate_email
+    // in one batch, which the parallel-call guard rejected outright. generate_email already does its
+    // own nested retrieval, so exactly that batch collapses to generate_email alone — in either
+    // order — and the outer search is never dispatched. ---
+    [Theory]
+    [InlineData(true)]  // [search_product_knowledge, generate_email]
+    [InlineData(false)] // [generate_email, search_product_knowledge]
+    public async Task Batch_SearchAndGenerateEmail_CollapsesToGenerateEmailOnly(bool searchFirst)
+    {
+        await using var harness = await ChatTestHarness.CreateAsync(TestContext.Current.CancellationToken);
+        harness.CrmGateway.FindCustomerResult = CustomerLookupResult.Found(Cus0001);
+        harness.CrmGateway.InteractionsResult = [Int0001];
+        harness.KnowledgeRetriever.SearchResult = KnowledgeSearchResult.Found([SavingsMatch()]);
+        harness.EmailDraftGenerator.Results.Enqueue(ValidRawDraft());
+
+        var searchCall = ("search_product_knowledge",
+            new Dictionary<string, object> { ["query"] = "gửi tiết kiệm 6 tháng" });
+        var emailCall = ("generate_email",
+            new Dictionary<string, object> { ["customerId"] = "CUS-0001", ["objective"] = "Follow-up gửi tiết kiệm 6 tháng" });
+
+        harness.ChatClient.Enqueue(searchFirst
+            ? FakeGeminiChatClient.MultiFunctionCallResponse(searchCall, emailCall)
+            : FakeGeminiChatClient.MultiFunctionCallResponse(emailCall, searchCall));
+
+        var (response, body) = await PostChatAsync(
+            harness.CreateWebClient(),
+            "Soạn email follow-up ngắn gọn, chuyên nghiệp về nhu cầu gửi tiết kiệm 6 tháng cho khách hàng CUS-0001");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(ChatTurnStatus.Success, body.Status);
+        Assert.Null(body.Error);
+
+        // Exactly one MCP dispatch, and it is generate_email — the outer search never ran.
+        Assert.Single(body.ToolTrace);
+        Assert.Equal("generate_email", body.ToolTrace[0].ToolName);
+        Assert.Equal("success", body.ToolTrace[0].Status);
+        Assert.DoesNotContain(body.ToolTrace, t => t.ToolName == "search_product_knowledge");
+        // If the outer search had been dispatched, MergeData would have populated this.
+        Assert.Null(body.Data?.KnowledgeMatches);
+        Assert.Equal(1, harness.ChatClient.CallCount);
+
+        // Draft data is complete.
+        Assert.NotNull(body.Data?.EmailDraft);
+        Assert.True(body.Data!.EmailDraft!.RequiresHumanApproval);
+        Assert.Equal("PRD-SAV-006M", body.Data.EmailDraft.SuggestedProductCode);
+        Assert.Contains("kb:product:PRD-SAV-006M", body.Data.EmailDraft.SourceIds);
+        Assert.Contains("kb:product:PRD-SAV-006M", body.SourceIds);
+
+        // Deterministic, PII-safe reply.
+        Assert.Equal("Đã tạo email nháp cho khách hàng CUS-0001. Bản nháp cần RM kiểm tra và phê duyệt.", body.Reply);
+        Assert.DoesNotContain(Cus0001.FullName, body.Reply!, StringComparison.Ordinal);
+        Assert.DoesNotContain("Thông tin gửi tiết kiệm 6 tháng", body.Reply!, StringComparison.Ordinal);
+        Assert.DoesNotContain("đây là thông tin tham khảo", body.Reply!, StringComparison.Ordinal);
+    }
+
+    // --- 28. The exact live turn-3 shape: the collapsed generate_email still gets CurrentCustomerId
+    // backfilled from session state when the model omits it ("cho khách hàng này"). ---
+    [Fact]
+    public async Task Batch_SearchAndGenerateEmail_WithoutCustomerId_BackfillsFromSessionState()
+    {
+        await using var harness = await ChatTestHarness.CreateAsync(TestContext.Current.CancellationToken);
+        var sessionId = Guid.NewGuid().ToString();
+        var client = harness.CreateWebClient();
+        harness.CrmGateway.FindCustomerResult = CustomerLookupResult.Found(Cus0001);
+        harness.CrmGateway.InteractionsResult = [Int0001];
+        harness.KnowledgeRetriever.SearchResult = KnowledgeSearchResult.Found([SavingsMatch()]);
+
+        harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
+            "get_customer", new Dictionary<string, object> { ["customerId"] = "CUS-0001" }));
+        await PostChatAsync(client, "Tìm hồ sơ khách hàng CUS-0001.", sessionId);
+
+        harness.EmailDraftGenerator.Results.Enqueue(ValidRawDraft());
+        harness.ChatClient.Enqueue(FakeGeminiChatClient.MultiFunctionCallResponse(
+            ("search_product_knowledge", new Dictionary<string, object> { ["query"] = "gửi tiết kiệm 6 tháng" }),
+            ("generate_email", new Dictionary<string, object> { ["objective"] = "Follow-up gửi tiết kiệm 6 tháng" })));
+
+        var (response, body) = await PostChatAsync(
+            client,
+            "Soạn email follow-up ngắn gọn, chuyên nghiệp và thân thiện về nhu cầu gửi tiết kiệm 6 tháng cho khách hàng này.",
+            sessionId);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(ChatTurnStatus.Success, body.Status);
+        Assert.Single(body.ToolTrace);
+        Assert.Equal("generate_email", body.ToolTrace[0].ToolName);
+        Assert.NotNull(body.Data?.EmailDraft);
+        Assert.Equal("Đã tạo email nháp cho khách hàng CUS-0001. Bản nháp cần RM kiểm tra và phê duyệt.", body.Reply);
+        // EmailTools resolves interactions for the backfilled id — proves the id reached the tool.
+        Assert.Equal("CUS-0001", harness.CrmGateway.LastInteractionsCustomerId);
+    }
+
+    // --- 29. The collapse rule is deliberately narrow: every other multi-call batch is still
+    // rejected outright, with no MCP dispatch at all. ---
+    [Theory]
+    [InlineData("get_customer", "get_interactions")]
+    [InlineData("get_customer", "generate_email")]
+    [InlineData("generate_email", "generate_email")]
+    [InlineData("search_product_knowledge", "search_product_knowledge")]
+    [InlineData("get_interactions", "generate_email")]
+    public async Task Batch_OtherMultiCallCombinations_StillRejectedWithoutAnyMcpCall(string firstTool, string secondTool)
+    {
+        await using var harness = await ChatTestHarness.CreateAsync(TestContext.Current.CancellationToken);
+        harness.CrmGateway.FindCustomerResult = CustomerLookupResult.Found(Cus0001);
+        harness.CrmGateway.InteractionsResult = [Int0001];
+        harness.KnowledgeRetriever.SearchResult = KnowledgeSearchResult.Found([SavingsMatch()]);
+        harness.EmailDraftGenerator.Results.Enqueue(ValidRawDraft());
+
+        var args = new Dictionary<string, object> { ["customerId"] = "CUS-0001", ["objective"] = "Follow-up", ["query"] = "tiết kiệm" };
+        harness.ChatClient.Enqueue(FakeGeminiChatClient.MultiFunctionCallResponse((firstTool, args), (secondTool, args)));
+
+        var (response, body) = await PostChatAsync(harness.CreateWebClient(), "Soạn email cho khách hàng CUS-0001");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(ChatTurnErrorCode.MultipleFunctionCallsNotSupported, body.Error?.Code);
+        Assert.Empty(body.ToolTrace);
+        Assert.Null(body.Data);
+        Assert.Equal(1, harness.ChatClient.CallCount);
+        Assert.Null(harness.CrmGateway.LastLookupQuery);
+        Assert.Equal(0, harness.EmailDraftGenerator.CallCount);
+    }
+
+    // --- 26. Guards against over-correcting: a knowledge-only turn has genuinely grounded evidence
+    // in Gemini's context, so the model's own prose must still be used verbatim. ---
+    [Fact]
+    public async Task KnowledgeOnlyTurn_StillUsesGroundedGeminiProse()
+    {
+        await using var harness = await ChatTestHarness.CreateAsync(TestContext.Current.CancellationToken);
+        harness.KnowledgeRetriever.SearchResult = KnowledgeSearchResult.Found([SavingsMatch()]);
+        harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse(
+            "search_product_knowledge", new Dictionary<string, object> { ["query"] = "tiết kiệm 6 tháng" }));
+        harness.ChatClient.Enqueue(FakeGeminiChatClient.TextResponse(
+            "Sản phẩm PRD-SAV-006M là tiền gửi kỳ hạn 6 tháng dành cho khách hàng ưu tiên an toàn."));
+
+        var (response, body) = await PostChatAsync(harness.CreateWebClient(), "Sản phẩm tiết kiệm 6 tháng có đặc điểm gì?");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(ChatTurnStatus.Success, body.Status);
+        Assert.Equal(
+            "Sản phẩm PRD-SAV-006M là tiền gửi kỳ hạn 6 tháng dành cho khách hàng ưu tiên an toàn.", body.Reply);
+        Assert.Equal(2, harness.ChatClient.CallCount);
+        Assert.NotNull(body.Data?.KnowledgeMatches);
     }
 }

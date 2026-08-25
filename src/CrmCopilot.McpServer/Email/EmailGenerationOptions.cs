@@ -16,4 +16,8 @@ internal static class EmailGenerationOptions
     /// <summary>1 initial attempt + 1 retry (docs/08_RAG_EMAIL_AND_PII_SPEC.md §9: "Schema retry
     /// tối đa 1 lần"). Never a third attempt.</summary>
     public const int MaxAttempts = 2;
+
+    /// <summary>The P0 locale (docs/01: Vietnamese-only MVP). Used as the default when a customer
+    /// record carries no PreferredLanguage of its own.</summary>
+    public const string DefaultLanguage = "vi";
 }

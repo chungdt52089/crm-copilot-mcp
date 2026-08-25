@@ -105,7 +105,7 @@ internal sealed class ChatOrchestrator(
         var trace = new List<ChatToolTraceEntry>();
         var seenCalls = new HashSet<string>(StringComparer.Ordinal);
         var sourceIds = new List<string>();
-        var accumulatedData = new ChatResponseData(null, null, null, null);
+        var accumulatedData = new ChatResponseData(null, null, null, null, null);
         var mcpCallCount = 0;
 
         while (true)
@@ -135,7 +135,24 @@ internal sealed class ChatOrchestrator(
 
             if (functionCalls.Count > 1)
             {
-                return Error(ChatTurnErrorCode.MultipleFunctionCallsNotSupported, MultipleFunctionCallsMessage, retryable: false, sourceIds, trace);
+                var collapsedCall = TryCollapseToGenerateEmail(functionCalls);
+
+                // Logged for BOTH outcomes, before the decision is acted on, so a parallel-call
+                // batch always leaves runtime evidence (the P0-08 live failure left none). Tool
+                // names only — a fixed 4-value vocabulary — never arguments, customerId, model
+                // text, or any other payload.
+                logger.LogWarning(
+                    "Gemini returned {FunctionCallCount} parallel function calls {RequestedToolNames}; resolution={Resolution}",
+                    functionCalls.Count,
+                    string.Join(",", functionCalls.Select(functionCall => functionCall.Name ?? "(unnamed)")),
+                    collapsedCall is null ? "Reject" : "CollapseToGenerateEmail");
+
+                if (collapsedCall is null)
+                {
+                    return Error(ChatTurnErrorCode.MultipleFunctionCallsNotSupported, MultipleFunctionCallsMessage, retryable: false, sourceIds, trace);
+                }
+
+                functionCalls = [collapsedCall];
             }
 
             var call = functionCalls[0];
@@ -210,12 +227,22 @@ internal sealed class ChatOrchestrator(
 
             if (parsed.Status != McpToolStatus.Success)
             {
-                return McpToolResultParser.ToDeterministicChatResponse(parsed, sourceIds, trace);
+                return McpToolResultParser.ToDeterministicChatResponse(
+                    parsed, sourceIds, trace, BuildDeterministicNotFoundReply(callName, parsed, callArgs, state));
             }
 
             sourceIds.AddRange(parsed.SourceIds);
             accumulatedData = MergeData(accumulatedData, callName, parsed.Data);
             state = stateStore.Update(normalizedSessionId, s => UpdateStateAfterToolCall(s, callName, callArgs, accumulatedData));
+
+            // P0-08 terminal-tool rule: a successful structured CRM tool ends the turn here — no
+            // FunctionResponse is sent back and no further Gemini completion is requested.
+            if (IsTerminalStructuredTool(callName))
+            {
+                return new ChatResponse(
+                    BuildDeterministicReply(callName, accumulatedData, callArgs, state),
+                    ChatTurnStatus.Success, sourceIds, trace, accumulatedData, null);
+            }
 
             var minimized = Minimize(callName, callArgs, parsed);
             contents.Add(new Content { Role = "user", Parts = [Part.FromFunctionResponse(callName, minimized)] });
@@ -230,7 +257,124 @@ internal sealed class ChatOrchestrator(
               "nếu người dùng dùng cụm như \"khách hàng này\" hoặc không nêu lại mã khách hàng, hãy dùng đúng mã này khi gọi tool.";
 
     private static bool RequiresCustomerId(string toolName) =>
-        toolName is ApprovedMcpToolNames.GetCustomer or ApprovedMcpToolNames.GetInteractions;
+        toolName is ApprovedMcpToolNames.GetCustomer or ApprovedMcpToolNames.GetInteractions or ApprovedMcpToolNames.GenerateEmail;
+
+    /// <summary>
+    /// P0-08 live finding (turn 3): <c>generate_email</c> already performs its own nested retrieval
+    /// inside EmailTools — it fetches the customer's recent interactions and retrieves both product
+    /// and email-template knowledge itself, and only trusts the allowed source ids it built from
+    /// that retrieval. A batch pairing it with one or more outer <c>search_product_knowledge</c>
+    /// calls is therefore a redundant plan, not a genuine parallel request: the outer search's
+    /// result could never reach the draft anyway. Exactly that one shape collapses to the
+    /// <c>generate_email</c> call alone (order-independent, outer searches never dispatched).
+    ///
+    /// Deliberately narrow: more than one <c>generate_email</c>, or any other tool anywhere in the
+    /// batch, still returns MULTIPLE_FUNCTION_CALLS_NOT_SUPPORTED. Returns null when the batch is
+    /// not collapsible.
+    /// </summary>
+    private static FunctionCall? TryCollapseToGenerateEmail(IReadOnlyList<FunctionCall> functionCalls)
+    {
+        FunctionCall? generateEmailCall = null;
+
+        foreach (var candidate in functionCalls)
+        {
+            var candidateName = candidate.Name ?? string.Empty;
+
+            if (candidateName == ApprovedMcpToolNames.GenerateEmail)
+            {
+                if (generateEmailCall is not null)
+                {
+                    return null; // more than one generate_email — not the collapsible shape
+                }
+
+                generateEmailCall = candidate;
+            }
+            else if (candidateName != ApprovedMcpToolNames.SearchProductKnowledge)
+            {
+                return null; // any other tool present — never collapsed
+            }
+        }
+
+        return generateEmailCall;
+    }
+
+    /// <summary>
+    /// The three structured CRM tools whose successful result ends the turn immediately (P0-08).
+    /// <c>search_product_knowledge</c> is deliberately excluded — see <see cref="BuildDeterministicReply"/>.
+    /// </summary>
+    private static bool IsTerminalStructuredTool(string toolName) =>
+        toolName is ApprovedMcpToolNames.GetCustomer or ApprovedMcpToolNames.GetInteractions or ApprovedMcpToolNames.GenerateEmail;
+
+    /// <summary>
+    /// P0-08 live acceptance finding: <see cref="Minimize"/> deliberately strips every semantic
+    /// field (interaction Summary/Type/Outcome, customer FullName) before anything reaches Gemini
+    /// (plan D1), so for these three tools the model has no grounded content to narrate an answer
+    /// from. Asked to produce one anyway, it fabricated both a customer name and an entire product
+    /// topic that contradicted the structured panels — and then requested a further redundant tool
+    /// call trying to fill the gap. The masking itself held (the real name never reached Gemini);
+    /// the defect was asking the model to author prose about data it could not see.
+    ///
+    /// So the Host composes the reply itself, deterministically, from non-PII facts only
+    /// (customerId — the same synthetic reference id already embedded in every sourceId — plus
+    /// counts). FullName/Email/Phone/AccountReference, interaction summaries and the email
+    /// subject/body are never included: the structured cards are the display surface for the data.
+    ///
+    /// <c>search_product_knowledge</c> is deliberately NOT terminal — its content carries no
+    /// customer PII and IS passed to Gemini in full, so the model's prose there is genuinely
+    /// grounded and stays in use.
+    /// </summary>
+    /// <summary>
+    /// P0-08 live finding: looking up a non-existent id mid-conversation returned Reply=null, so the
+    /// UI showed only a generic "Không tìm thấy." banner beside the previous customer's still-populated
+    /// panels — leaving it ambiguous whose data was on screen. Naming the id that was actually looked
+    /// up removes that ambiguity (customerId is a synthetic reference id, not PII — the same value
+    /// already embedded in every sourceId).
+    ///
+    /// A RAG no-evidence outcome is deliberately worded differently: it is also <c>not_found</c>, but
+    /// it means "no product/template evidence", not "this customer does not exist". It is told apart
+    /// structurally, not by wording — McpToolResponses.RagNoEvidence carries no error object at all,
+    /// whereas a genuine customer miss carries NOT_FOUND.
+    ///
+    /// Returns null for every other non-success outcome, leaving the existing error/ambiguous
+    /// behaviour untouched. <see cref="ConversationState.CurrentCustomerId"/> is deliberately NOT
+    /// cleared by a failed lookup, so follow-ups continue to resolve against the last customer that
+    /// actually loaded.
+    /// </summary>
+    private static string? BuildDeterministicNotFoundReply(
+        string toolName, ParsedMcpResult parsed, IDictionary<string, object>? callArgs, ConversationState state)
+    {
+        if (parsed.Status != McpToolStatus.NotFound || !IsTerminalStructuredTool(toolName))
+        {
+            return null;
+        }
+
+        var customerId = (TryGetString(callArgs, "customerId", out var argCustomerId) ? argCustomerId : null)
+            ?? state.CurrentCustomerId;
+        var customerLabel = customerId is { Length: > 0 } ? $"khách hàng {customerId}" : "khách hàng được yêu cầu";
+
+        return parsed.Error is null
+            ? $"Không đủ dữ liệu sản phẩm hoặc mẫu email phù hợp để soạn email cho {customerLabel}."
+            : $"Không tìm thấy {customerLabel}.";
+    }
+
+    private static string BuildDeterministicReply(
+        string toolName, ChatResponseData data, IDictionary<string, object>? callArgs, ConversationState state)
+    {
+        var customerId = data.Customer?.Id
+            ?? (TryGetString(callArgs, "customerId", out var argCustomerId) ? argCustomerId : null)
+            ?? state.CurrentCustomerId;
+        var customerLabel = customerId is { Length: > 0 } ? $"khách hàng {customerId}" : "khách hàng hiện tại";
+
+        return toolName switch
+        {
+            ApprovedMcpToolNames.GetCustomer =>
+                $"Đã tải hồ sơ {customerLabel}. Xem dữ liệu chi tiết bên dưới.",
+            ApprovedMcpToolNames.GetInteractions =>
+                $"Đã tải {data.Interactions?.Count ?? 0} tương tác gần nhất của {customerLabel}. Xem dữ liệu chi tiết bên dưới.",
+            _ =>
+                $"Đã tạo email nháp cho {customerLabel}. Bản nháp cần RM kiểm tra và phê duyệt.",
+        };
+    }
 
     private static Dictionary<string, object> WithCustomerId(IDictionary<string, object>? args, string customerId)
     {
@@ -285,6 +429,11 @@ internal sealed class ChatOrchestrator(
             };
         }
 
+        if (toolName == ApprovedMcpToolNames.GenerateEmail && TryGetString(callArgs, "customerId", out var emailCustomerId))
+        {
+            return state with { CurrentCustomerId = emailCustomerId, LastIntent = toolName, UpdatedAtUtc = now };
+        }
+
         return state;
     }
 
@@ -293,6 +442,7 @@ internal sealed class ChatOrchestrator(
         ApprovedMcpToolNames.GetCustomer => accumulated with { Customer = McpToolResultParser.ExtractCustomer(data) },
         ApprovedMcpToolNames.GetInteractions => accumulated with { Interactions = McpToolResultParser.ExtractInteractions(data) },
         ApprovedMcpToolNames.SearchProductKnowledge => accumulated with { KnowledgeMatches = McpToolResultParser.ExtractKnowledgeMatches(data) },
+        ApprovedMcpToolNames.GenerateEmail => accumulated with { EmailDraft = McpToolResultParser.ExtractEmailDraft(data) },
         _ => accumulated,
     };
 
@@ -314,7 +464,8 @@ internal sealed class ChatOrchestrator(
             ["sourceIds"] = parsed.SourceIds,
         };
 
-        if ((toolName == ApprovedMcpToolNames.GetCustomer || toolName == ApprovedMcpToolNames.GetInteractions) &&
+        if ((toolName == ApprovedMcpToolNames.GetCustomer || toolName == ApprovedMcpToolNames.GetInteractions ||
+             toolName == ApprovedMcpToolNames.GenerateEmail) &&
             TryGetString(callArgs, "customerId", out var customerId))
         {
             payload["customerId"] = customerId!;
@@ -323,6 +474,16 @@ internal sealed class ChatOrchestrator(
         if (toolName == ApprovedMcpToolNames.GetInteractions)
         {
             payload["interactionCount"] = parsed.SourceIds.Count;
+        }
+
+        if (toolName == ApprovedMcpToolNames.GenerateEmail)
+        {
+            // Deliberately excludes Subject/Body: EmailTools already restored the customer's real
+            // FullName into both before this result reached the Host (plan D1) — echoing them back
+            // into Gemini's own context here would round-trip PII into the model loop a second time.
+            var draft = McpToolResultParser.ExtractEmailDraft(parsed.Data);
+            payload["requiresHumanApproval"] = draft?.RequiresHumanApproval ?? true;
+            payload["suggestedProductCode"] = draft?.SuggestedProductCode ?? string.Empty;
         }
 
         if (toolName == ApprovedMcpToolNames.SearchProductKnowledge)

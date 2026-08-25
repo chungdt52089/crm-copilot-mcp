@@ -16,4 +16,8 @@ internal sealed record EmailDraftPromptContext(
     IReadOnlyList<KnowledgeMatch> ProductMatches,
     IReadOnlyList<KnowledgeMatch> TemplateMatches,
     string? RequestedProductCode,
-    string? CorrectiveInstruction);
+    string? CorrectiveInstruction,
+    /// <summary>The customer's PreferredLanguage (P0-08). Until then this field existed on
+    /// CustomerDto but was never read anywhere in the email pipeline, so the model was never told
+    /// which locale to write for — see GeminiEmailDraftGenerator's diacritics rule.</summary>
+    string Language = EmailGenerationOptions.DefaultLanguage);
