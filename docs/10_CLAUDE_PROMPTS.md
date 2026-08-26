@@ -703,9 +703,20 @@ Stop after the plan and wait for explicit approval.
 
 You are the implementation engineer for the CRM Copilot MVP repository.
 
-Current checkpoint: P0-09 — Docker, Demo & Deployment Readiness.
-Expected branch: feature/p0-09-docker-demo.
+Current checkpoint: P0-09 — Acceptance, Hardening & Demo.
+Expected branch: feature/p0-09-deployment-readiness.
 Base branch: develop.
+
+Scope note (chốt 2026-08-25, giải quyết mâu thuẫn giữa file này và docs/04_P0_CHECKPOINTS.md):
+P0-09 được chia hai pha. **Pha A** — acceptance/hardening/demo — là nội dung của `docs/04` §P0-09
+và là phần bắt buộc: bộ 8 scenario ≥7/8, ba lần demo liên tiếp, runbook/known-limitations, final
+verdict trong `CHECKPOINT_STATUS.md`. **Pha B** — Docker/Compose, mô tả ở phần "Checkpoint goals"
+bên dưới — chỉ được mở sau khi Pha A được reviewer PASS, và cần plan + phê duyệt riêng.
+
+Lý do thứ tự này (theo thang ưu tiên của CLAUDE.md §1, các quyết định đã khóa đứng trên prompt mẫu):
+`docs/01_PROJECT_DECISIONS.md` PD-016 ghi "Docker/cloud là bonus sau khi local P0 ổn định";
+`docs/02_ARCHITECTURE.md` §10 ghi "Không coi Docker là pass condition của core MVP"; và
+`docs/04_P0_CHECKPOINTS.md` §4 xếp cloud deploy là hạng mục cắt thứ nhất, Docker hoá thứ hai.
 
 Work in plan-only mode.
 

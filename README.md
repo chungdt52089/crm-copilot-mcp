@@ -76,6 +76,7 @@ ChatGPT không thể tự biết thay đổi trong phiên Claude nếu chưa đ�
 | `11_DEMO_RUNBOOK.md` | Kịch bản demo, fallback và checklist |
 | `12_POST_MVP_AND_INTEGRATION.md` | Opportunity, call script, HubSpot, Docker/cloud |
 | `13_REFERENCE_SOURCES.md` | Nguồn chính thức và ngày kiểm chứng |
+| `14_ACCEPTANCE_SCENARIO_REPORT.md` | Kết quả bộ 8 scenario T01–T08 theo từng lớp evidence (D/L/B) |
 | `CHECKPOINT_STATUS.md` | Sổ trạng thái, evidence, blocker và quyết định review |
 
 ## 6. Quy tắc sử dụng
@@ -96,7 +97,11 @@ ChatGPT không thể tự biết thay đổi trong phiên Claude nếu chưa đ�
 - P0-04 — MCP Server Core Tools: **DONE** (PASS; merged to `develop` via PR #8; xem mục 8 "MCP Server Core Tools (P0-04)" và `docs/CHECKPOINT_STATUS.md`)
 - P0-05 — AI Host + MCP Client: **DONE** (PASS; merged to `develop` via PR #9; xem mục 8 "AI Host + MCP Client (P0-05)" và `docs/CHECKPOINT_STATUS.md`)
 - P0-06 — Conversation State: **DONE** (PASS; live acceptance confirmed 2026-08-24; merged to `develop` via PR #11, `042f65b` → merge `340b678`; xem mục 8 "Conversation State (P0-06)" và `docs/CHECKPOINT_STATUS.md`)
-- P0-07 — RAG Email Draft + PII: **DONE** (PASS; live acceptance confirmed 2026-08-24; implementation trên `feature/p0-07-email-pii`, **chưa commit, chưa merge vào `develop`**; xem `docs/CHECKPOINT_STATUS.md`)
+- P0-07 — RAG Email Draft + PII: **DONE** (PASS; live acceptance confirmed 2026-08-24; merged to `develop` via PR #12, `b463742` → merge `ba4c2ba`; xem `docs/CHECKPOINT_STATUS.md`)
+- P0-08 — Web UI + Trace + Sources: **DONE (merged)** (merged to `develop` via PR #13, `cf2ae3e` → merge `a91c041`; verdict chưa được ghi trong `docs/CHECKPOINT_STATUS.md` tại thời điểm merge — xem blocker B-04)
+- P0-09 — Acceptance, Hardening & Demo (Pha A): **IN PROGRESS** trên `feature/p0-09-deployment-readiness` (xem mục 8 "Acceptance & Demo (P0-09)")
+
+`develop` chưa được merge vào `main` — `main` vẫn ở `afa47fd` (docs baseline).
 
 Chi tiết evidence/verdict từng checkpoint xem `docs/CHECKPOINT_STATUS.md`.
 
@@ -307,6 +312,46 @@ Luôn trả `204 No Content` (idempotent) nếu `sessionId` là GUID hợp lệ,
 - Không có TTL/idle-expiry cho một session; một `sessionId` hợp lệ dù bị từ chối ngay từ `InputGuard` (vd. do PII) vẫn tạo một entry rỗng trong store cho đến khi restart hoặc bị `DELETE` tường minh.
 - Gọi `DELETE /api/chat/sessions/{sessionId}` đồng thời với một request `/api/chat` đang chạy cho cùng `sessionId` là một race chấp nhận được ở P0-06 (không có khoá đồng bộ) — UI P0-08 cần tự vô hiệu hoá nút Reset/"New conversation" trong khi đang có request chat cho phiên đó.
 - `RecentSanitizedMessages` chỉ chống được ba dạng PII cơ học mà `InputGuard` đã nhận diện (email/số điện thoại kiểu VN/chuỗi 9+ chữ số) trước khi lưu — đây là lớp phòng thủ bổ sung (defense-in-depth), không phải bộ phát hiện PII toàn diện.
+
+### Web UI + Trace + Sources (P0-08)
+
+`CrmCopilot.Web` phục vụ một trang Razor tối thiểu tại `http://localhost:5081/` (`Pages/Index.cshtml` + `wwwroot/js/app.js` + `wwwroot/css/app.css`, vanilla JS, không framework frontend). Trang gồm: ô nhập tiếng Việt, khung chat, customer card, danh sách candidate khi trùng tên, danh sách interaction, panel email nháp (subject/body/nhãn cần duyệt/source chips), accordion "Tool trace & sources", và nút "New conversation".
+
+Trình duyệt tự sinh `sessionId` (GUID) một lần và gửi lại ở mọi lượt; nút "New conversation" gọi `DELETE /api/chat/sessions/{sessionId}` rồi sinh `sessionId` mới.
+
+Hai control an toàn của UI:
+
+- **Không dùng `innerHTML` với bất kỳ giá trị nội suy nào** — toàn bộ nội dung do model/CRM sinh ra được gán qua `textContent` (`wwwroot/js/app.js:53`), nên output của model không thể trở thành HTML thực thi được.
+- **Khoá thao tác khi đang xử lý** — nút Gửi, nút "New conversation" và ô nhập đều bị `disabled` trong lúc có request đang chạy (`wwwroot/js/app.js:115-117`), chặn double-submit và chặn race giữa reset và một lượt chat đang bay (giới hạn mà P0-06 đã nêu).
+
+Từ P0-08, một tool "kết thúc lượt" (`get_customer`/`get_interactions`/`generate_email`) thành công sẽ kết thúc lượt ngay và reply do Host render deterministic — không hỏi Gemini thêm một lần nữa để viết câu trả lời.
+
+### Acceptance & Demo (P0-09)
+
+Bộ 8 scenario nội bộ của `docs/03_ACCEPTANCE_CRITERIA.md` §6 nằm ở `tests/CrmCopilot.Tests/Acceptance/`.
+
+```powershell
+# Lớp D (deterministic, offline) — chạy cả 8 scenario và sinh report
+dotnet test tests/CrmCopilot.Tests/CrmCopilot.Tests.csproj --no-build --no-restore `
+  --filter-class "CrmCopilot.Tests.Acceptance.AcceptanceScenarioTests"
+```
+
+Kết quả ghi ra `TestResults/acceptance-scenarios-offline.md` (đã bị `.gitignore` chặn): bảng 8 dòng kèm `ScenarioAccuracy X/8`, dòng `Quality target 8/8: MET | NOT MET`, và toàn bộ check của từng scenario. Bản tường thuật được commit là `docs/14_ACCEPTANCE_SCENARIO_REPORT.md`.
+
+Vài điểm về thiết kế của bộ này, cần biết trước khi đọc kết quả:
+
+- **Ngưỡng pass là `≥7/8`**, đúng như `docs/03` §6 đã khóa — không phải 8/8. `8/8` được in ra như quality target, không phải pass condition.
+- **`Fail` khác `Error`.** `Fail` = scenario đã được đánh giá và có check không đạt (tính vào `X/8`). `Error` = không đánh giá được (harness/transport hỏng) và làm test fail **độc lập** với ngưỡng 7/8 — một scenario không đo được thì con số `X/8` không còn ý nghĩa.
+- **T02/T03 được đánh giá ở MCP tool boundary**, không qua `/api/chat`. `InputGuard` (quyết định D7 của P0-05, `src/CrmCopilot.Web/Chat/InputGuard.cs`) **cố ý** từ chối message chứa cụm tên viết hoa liên tiếp mà không kèm `CUS-####`. Chạy hai scenario tra cứu-theo-tên qua chat sẽ fail *đúng theo thiết kế*, nên chúng được đo ở tầng tool — không nới `InputGuard` để "cho pass".
+- Scenario dùng `DatasetCrmGateway`: dataset thật đã checked-in + logic search thật của P0-02, nên T02/T03/T05 kiểm chứng hành vi hệ thống chứ không kiểm chứng setup của chính test.
+
+```powershell
+# Lớp L (live gate) — cần GEMINI_API_KEY thật + Chroma + MockCrmApi đang chạy
+dotnet test tests/CrmCopilot.Tests/CrmCopilot.Tests.csproj --no-build --no-restore `
+  --filter-class "CrmCopilot.Tests.Acceptance.LiveAcceptanceScenarioTests"
+```
+
+Live gate dùng collection cô lập `crm-copilot-knowledge-livetest`. Thiếu credential thì test báo **Skipped** — và Skipped **không bao giờ** là PASS: theo công thức verdict của P0-09, một live gate chưa chạy giới hạn checkpoint ở mức PARTIAL, và kết quả offline không được mượn để thay thế.
 
 ### Secret hygiene
 
