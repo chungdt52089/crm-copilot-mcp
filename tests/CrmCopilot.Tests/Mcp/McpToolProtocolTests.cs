@@ -74,8 +74,24 @@ public class McpToolProtocolTests
         return JsonDocument.Parse(text).RootElement;
     }
 
+    /// <summary>
+    /// The P0-10 target set (plan gate "final tools/list expected set"). Asserted as an exact,
+    /// ordered set rather than a count so both a missing registration and an unintended extra tool
+    /// fail loudly — .WithTools&lt;T&gt;() in Program.cs is the only thing that puts a tool here.
+    /// </summary>
+    private static readonly string[] ExpectedToolNames =
+    [
+        "generate_call_script",
+        "generate_email",
+        "get_campaigns",
+        "get_customer",
+        "get_interactions",
+        "get_opportunities",
+        "search_product_knowledge",
+    ];
+
     [Fact]
-    public async Task ToolsList_ReturnsExactlyFourExpectedToolsWithNonEmptySchemas()
+    public async Task ToolsList_ReturnsExactlySevenExpectedToolsWithNonEmptySchemas()
     {
         var (factory, _, _, _) = CreateFactory();
         await using var factoryDisposable = factory;
@@ -84,25 +100,32 @@ public class McpToolProtocolTests
         var tools = await client.ListToolsAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         var names = tools.Select(tool => tool.Name).ToList();
-        Assert.Equal(
-            new[] { "generate_email", "get_customer", "get_interactions", "search_product_knowledge" },
-            names.OrderBy(name => name, StringComparer.Ordinal));
+        Assert.Equal(ExpectedToolNames, names.OrderBy(name => name, StringComparer.Ordinal));
         Assert.All(tools, tool => Assert.False(tool.JsonSchema.ValueKind == JsonValueKind.Undefined));
     }
 
+    /// <summary>
+    /// docs/07 §8: every P0 tool is read-only and non-destructive, and no write/send tool exists.
+    /// Asserted across the whole set rather than for generate_email alone, so a future tool cannot
+    /// be added without this annotation contract being considered.
+    /// </summary>
     [Fact]
-    public async Task ToolsList_GenerateEmailAnnotatedReadOnlyTrueDestructiveFalse()
+    public async Task ToolsList_EveryToolAnnotatedReadOnlyTrueDestructiveFalse()
     {
         var (factory, _, _, _) = CreateFactory();
         await using var factoryDisposable = factory;
         await using var client = await ConnectAsync(factory, TestContext.Current.CancellationToken);
 
         var tools = await client.ListToolsAsync(cancellationToken: TestContext.Current.CancellationToken);
-        var generateEmail = Assert.Single(tools, tool => tool.Name == "generate_email");
-        var annotations = generateEmail.ProtocolTool.Annotations;
 
-        Assert.Equal(true, annotations?.ReadOnlyHint);
-        Assert.NotEqual(true, annotations?.DestructiveHint);
+        Assert.All(tools, tool =>
+        {
+            var annotations = tool.ProtocolTool.Annotations;
+            Assert.Equal(true, annotations?.ReadOnlyHint);
+            Assert.NotEqual(true, annotations?.DestructiveHint);
+        });
+
+        Assert.DoesNotContain(tools, tool => tool.Name == "send_email");
     }
 
     [Fact]
@@ -117,7 +140,8 @@ public class McpToolProtocolTests
         knowledgeRetriever.SearchResult = KnowledgeSearchResult.Found(
             [new KnowledgeMatch("kb:product:PRD-SAV-006M", KnowledgeDocumentType.Product, "nội dung", metadata, Distance: 0.4)]);
         emailDraftGenerator.Results.Enqueue(new RawEmailDraftModel(
-            RawEmailDraftModel.StatusOk, "Thông tin tham khảo", "Kính gửi {{CUSTOMER_NAME}}, nội dung.",
+            RawEmailDraftModel.StatusOk, "Thông tin tham khảo",
+            "Kính gửi {{CUSTOMER_NAME}},\n\nNội dung tham khảo.\n\nTrân trọng,",
             "PRD-SAV-006M", ["kb:product:PRD-SAV-006M"], true, []));
         await using var factoryDisposable = factory;
         await using var client = await ConnectAsync(factory, TestContext.Current.CancellationToken);

@@ -51,6 +51,23 @@ public class KnowledgeSourceLoaderTests
                 }]
                 """);
 
+            File.WriteAllText(Path.Combine(directory, "call-scripts.json"), """
+                [{
+                  "sourceId": "kb:call-script:CS-TEST-01",
+                  "scriptId": "CS-TEST-01",
+                  "intent": "TestCallIntent",
+                  "tone": "ProfessionalWarm",
+                  "openingGuidance": "Opening guidance A",
+                  "discoveryQuestionGuidance": ["Discovery A"],
+                  "talkingPointGuidance": ["Talking point A"],
+                  "objectionHandlingGuidance": ["Objection A"],
+                  "closingGuidance": "Closing guidance A",
+                  "language": "vi",
+                  "synthetic": true,
+                  "version": "1.0"
+                }]
+                """);
+
             var documents = KnowledgeSourceLoader.LoadFromDirectory(directory);
 
             var product = Assert.Single(documents, d => d.DocumentType == KnowledgeDocumentType.Product);
@@ -72,6 +89,19 @@ public class KnowledgeSourceLoaderTests
             Assert.Contains("TestIntent", template.RenderedText, StringComparison.Ordinal);
             Assert.Contains("Subject {{X}}", template.RenderedText, StringComparison.Ordinal);
             Assert.Contains("Guidance A", template.RenderedText, StringComparison.Ordinal);
+
+            var callScript = Assert.Single(documents, d => d.DocumentType == KnowledgeDocumentType.CallScript);
+            Assert.Equal("kb:call-script:CS-TEST-01", callScript.SourceId);
+            // The scriptId is carried in the TemplateId slot so call scripts fit the existing Chroma
+            // metadata schema unchanged (see KnowledgeSourceLoader.RenderCallScript).
+            Assert.Equal("CS-TEST-01", callScript.TemplateId);
+            Assert.Null(callScript.ProductCode);
+            Assert.Contains("TestCallIntent", callScript.RenderedText, StringComparison.Ordinal);
+            Assert.Contains("Opening guidance A", callScript.RenderedText, StringComparison.Ordinal);
+            Assert.Contains("Discovery A", callScript.RenderedText, StringComparison.Ordinal);
+            Assert.Contains("Talking point A", callScript.RenderedText, StringComparison.Ordinal);
+            Assert.Contains("Objection A", callScript.RenderedText, StringComparison.Ordinal);
+            Assert.Contains("Closing guidance A", callScript.RenderedText, StringComparison.Ordinal);
         }
         finally
         {
@@ -91,7 +121,7 @@ public class KnowledgeSourceLoaderTests
             ["G"], "vi", true, "1.0");
 
         var exception = Assert.Throws<InvalidOperationException>(
-            () => KnowledgeSourceLoader.Validate([product], [duplicateAsTemplate]));
+            () => KnowledgeSourceLoader.Validate([product], [duplicateAsTemplate], []));
         Assert.Contains("Duplicate sourceId", exception.Message, StringComparison.Ordinal);
     }
 
@@ -102,7 +132,7 @@ public class KnowledgeSourceLoaderTests
             "wrong:prefix:PRD-01", "PRD-01", "Name", "Savings", "Summary",
             ["E"], ["B"], ["C"], "vi", true, "1.0");
 
-        var exception = Assert.Throws<InvalidOperationException>(() => KnowledgeSourceLoader.Validate([product], []));
+        var exception = Assert.Throws<InvalidOperationException>(() => KnowledgeSourceLoader.Validate([product], [], []));
         Assert.Contains("kb:product:", exception.Message, StringComparison.Ordinal);
     }
 
@@ -113,7 +143,7 @@ public class KnowledgeSourceLoaderTests
             "wrong:prefix:TPL-01", "TPL-01", "Intent", "ProfessionalWarm", "Subject",
             ["G"], "vi", true, "1.0");
 
-        var exception = Assert.Throws<InvalidOperationException>(() => KnowledgeSourceLoader.Validate([], [template]));
+        var exception = Assert.Throws<InvalidOperationException>(() => KnowledgeSourceLoader.Validate([], [template], []));
         Assert.Contains("kb:email-template:", exception.Message, StringComparison.Ordinal);
     }
 
@@ -124,7 +154,7 @@ public class KnowledgeSourceLoaderTests
             "kb:product:PRD-01", "PRD-01", "Name", "Savings", "Summary",
             ["E"], ["B"], ["C"], "vi", Synthetic: false, "1.0");
 
-        var exception = Assert.Throws<InvalidOperationException>(() => KnowledgeSourceLoader.Validate([product], []));
+        var exception = Assert.Throws<InvalidOperationException>(() => KnowledgeSourceLoader.Validate([product], [], []));
         Assert.Contains("synthetic", exception.Message, StringComparison.Ordinal);
     }
 
@@ -135,7 +165,7 @@ public class KnowledgeSourceLoaderTests
             "kb:product:PRD-01", "PRD-01", "Name", "Savings", "Summary",
             ["E"], ["B"], ["C"], "en", true, "1.0");
 
-        var exception = Assert.Throws<InvalidOperationException>(() => KnowledgeSourceLoader.Validate([product], []));
+        var exception = Assert.Throws<InvalidOperationException>(() => KnowledgeSourceLoader.Validate([product], [], []));
         Assert.Contains("language", exception.Message, StringComparison.Ordinal);
     }
 
@@ -146,7 +176,7 @@ public class KnowledgeSourceLoaderTests
             "wrong:prefix", "", "Name", "Savings", "Summary",
             ["E"], ["B"], ["C"], "en", Synthetic: false, "1.0");
 
-        var exception = Assert.Throws<InvalidOperationException>(() => KnowledgeSourceLoader.Validate([product], []));
+        var exception = Assert.Throws<InvalidOperationException>(() => KnowledgeSourceLoader.Validate([product], [], []));
 
         Assert.Contains("prefix", exception.Message, StringComparison.Ordinal);
         Assert.Contains("synthetic", exception.Message, StringComparison.Ordinal);

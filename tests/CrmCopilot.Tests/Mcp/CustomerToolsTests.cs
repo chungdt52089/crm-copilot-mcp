@@ -211,4 +211,92 @@ public class CustomerToolsTests
         Assert.Equal("crm:interaction:INT-0001", root.GetProperty("sourceIds")[0].GetString());
         Assert.Equal(5, gateway.LastInteractionsLimit);
     }
+
+    // ---- P0-10: customerId format at the MCP boundary (defense in depth) -------------------------
+
+    /// <summary>
+    /// The Host now refuses a malformed identifier before Gemini sees it, but a direct MCP client
+    /// bypasses the Host. Without this check "CS-0003" reached the gateway and came back NOT_FOUND —
+    /// which tells the caller the id was well-formed and simply absent. It was not.
+    /// </summary>
+    [Theory]
+    [InlineData("CS-0002")]
+    [InlineData("CS-0003")]
+    [InlineData("CS-0004")]
+    [InlineData("CUS-002")]
+    [InlineData("CUS-00002")]
+    [InlineData("0001")]
+    public async Task GetCustomer_MalformedCustomerId_ReturnsInvalidArgumentWithoutCallingGateway(string customerId)
+    {
+        var gateway = new FakeCrmGateway();
+        var tools = CreateTools(gateway);
+
+        var result = await tools.GetCustomer(customerId, null, TestContext.Current.CancellationToken);
+
+        var root = Parse(result);
+        Assert.Equal(McpToolStatus.Error, root.GetProperty("status").GetString());
+        Assert.Equal(McpToolErrorCode.InvalidArgument, root.GetProperty("error").GetProperty("code").GetString());
+        Assert.NotEqual(McpToolStatus.NotFound, root.GetProperty("status").GetString());
+        Assert.Null(gateway.LastLookupQuery);
+    }
+
+    /// <summary>
+    /// The tool result message can be surfaced verbatim to the RM by the Host, so it carries the
+    /// same public wording as the Host-side rejection — no id convention, no validator internals.
+    /// </summary>
+    [Fact]
+    public async Task GetCustomer_MalformedCustomerId_MessageLeaksNoFormatConvention()
+    {
+        var tools = CreateTools(new FakeCrmGateway());
+
+        var result = await tools.GetCustomer("CS-0003", null, TestContext.Current.CancellationToken);
+
+        var message = Parse(result).GetProperty("error").GetProperty("message").GetString()!;
+        Assert.Equal("Mã khách hàng không hợp lệ. Vui lòng kiểm tra đúng định dạng và thử lại.", message);
+        Assert.DoesNotContain("CUS-", message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("####", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Chỉ được cung cấp một trong", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GetCustomer_WellFormedButNonexistentId_StillReturnsNotFound()
+    {
+        var gateway = new FakeCrmGateway { FindCustomerResult = CustomerLookupResult.NotFound };
+        var tools = CreateTools(gateway);
+
+        var result = await tools.GetCustomer("CUS-9999", null, TestContext.Current.CancellationToken);
+
+        var root = Parse(result);
+        Assert.Equal(McpToolStatus.NotFound, root.GetProperty("status").GetString());
+        Assert.Equal(McpToolErrorCode.NotFound, root.GetProperty("error").GetProperty("code").GetString());
+        Assert.Equal("CUS-9999", gateway.LastLookupQuery?.CustomerId);
+    }
+
+    /// <summary>`query` is a customer NAME, not an identifier — the format rule must not touch it.</summary>
+    [Fact]
+    public async Task GetCustomer_NaturalLanguageQuery_StillReachesTheGateway()
+    {
+        var gateway = new FakeCrmGateway { FindCustomerResult = CustomerLookupResult.Found(Cus0001) };
+        var tools = CreateTools(gateway);
+
+        var result = await tools.GetCustomer(null, "Nguyễn Minh Anh", TestContext.Current.CancellationToken);
+
+        Assert.Equal(McpToolStatus.Success, Parse(result).GetProperty("status").GetString());
+        Assert.Equal("Nguyễn Minh Anh", gateway.LastLookupQuery?.Query);
+    }
+
+    /// <summary>The exactly-one-argument contract is unchanged — the Host was fixed, not this rule.</summary>
+    [Fact]
+    public async Task GetCustomer_BothCustomerIdAndQuery_IsStillRejected()
+    {
+        var gateway = new FakeCrmGateway();
+        var tools = CreateTools(gateway);
+
+        var result = await tools.GetCustomer("CUS-0001", "Nguyễn Minh Anh", TestContext.Current.CancellationToken);
+
+        var root = Parse(result);
+        Assert.Equal(McpToolErrorCode.InvalidArgument, root.GetProperty("error").GetProperty("code").GetString());
+        Assert.Contains("Chỉ được cung cấp một trong", root.GetProperty("error").GetProperty("message").GetString()!, StringComparison.Ordinal);
+        Assert.Null(gateway.LastLookupQuery);
+    }
 }

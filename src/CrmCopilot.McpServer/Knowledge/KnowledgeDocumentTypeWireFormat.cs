@@ -13,10 +13,17 @@ internal static class KnowledgeDocumentTypeWireFormat
     public const string Product = "product";
     public const string EmailTemplate = "email_template";
 
+    /// <summary>P0-10. Note the forward-only compatibility consequence: a Chroma collection that
+    /// has been ingested with call-script documents cannot be read by a pre-P0-10 build of this
+    /// server — <see cref="FromWire"/> there would reject the value. Rolling the server back
+    /// requires re-ingesting the collection.</summary>
+    public const string CallScript = "call_script";
+
     public static string ToWire(KnowledgeDocumentType documentType) => documentType switch
     {
         KnowledgeDocumentType.Product => Product,
         KnowledgeDocumentType.EmailTemplate => EmailTemplate,
+        KnowledgeDocumentType.CallScript => CallScript,
         _ => throw new ArgumentOutOfRangeException(nameof(documentType), documentType, null),
     };
 
@@ -24,6 +31,7 @@ internal static class KnowledgeDocumentTypeWireFormat
     {
         Product => KnowledgeDocumentType.Product,
         EmailTemplate => KnowledgeDocumentType.EmailTemplate,
+        CallScript => KnowledgeDocumentType.CallScript,
         _ => throw new KnowledgeVectorStoreException(
             $"Chroma metadata for '{sourceId}' has an unrecognized documentType '{wireValue}'.", retryable: false),
     };
@@ -42,6 +50,9 @@ internal static class KnowledgeDocumentTypeWireFormat
                 return true;
             case EmailTemplate:
                 documentType = KnowledgeDocumentType.EmailTemplate;
+                return true;
+            case CallScript:
+                documentType = KnowledgeDocumentType.CallScript;
                 return true;
             default:
                 documentType = default;

@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using CrmCopilot.Contracts.Chat;
+using CrmCopilot.Contracts.Crm;
 using CrmCopilot.Contracts.Mcp;
 using Google.GenAI.Types;
 using ModelContextProtocol.Client;
@@ -32,6 +34,13 @@ internal sealed class ChatOrchestrator(
 {
     private const int MaxMcpCalls = 3;
     private const int MaxRecentMessages = 8;
+
+    /// <summary>Mirrors the objective limit both generator tools enforce, so folding dropped text
+    /// into the objective can never overflow it (see <see cref="FoldIntoObjective"/>).</summary>
+    private const int MaxObjectiveLength = 500;
+
+    /// <summary>Mirrors generate_call_script's own opportunityId shape rule.</summary>
+    private static readonly Regex OpportunityIdPattern = new(@"^OPP-\d{4}$", RegexOptions.Compiled);
 
     private const string SystemInstructionText =
         "Bạn là trợ lý CRM tiếng Việt dành cho Relationship Manager (RM). " +
@@ -167,7 +176,14 @@ internal sealed class ChatOrchestrator(
             // P0-06 deterministic resolution: if this call needs a customerId and Gemini's own
             // call omitted it, fill it in from the session's active customer before any downstream
             // check/dispatch sees the args — correctness never depends on Gemini's wording.
+            // The query check is load-bearing, not defensive tidying (browser-verified P0-10): given
+            // an unrecognized token the model may call get_customer with a `query` instead of a
+            // `customerId`. Injecting the session id alongside it produced a call carrying BOTH
+            // arguments, which get_customer correctly refuses — surfacing its internal validator
+            // message ("Chỉ được cung cấp một trong customerId hoặc query") to the RM. The tool was
+            // right; the Host was building an invalid call. Never combine the two.
             if (RequiresCustomerId(callName) && !TryGetString(callArgs, "customerId", out _) &&
+                !TryGetString(callArgs, "query", out _) &&
                 state.CurrentCustomerId is { } fallbackCustomerId)
             {
                 callArgs = WithCustomerId(callArgs, fallbackCustomerId);
@@ -177,6 +193,8 @@ internal sealed class ChatOrchestrator(
             {
                 return Error(ChatTurnErrorCode.NameLookupNotSupported, NameLookupNotSupportedMessage, retryable: false, sourceIds, trace);
             }
+
+            callArgs = NormalizeIdentifierArguments(callName, callArgs);
 
             if (!seenCalls.Add(CanonicalizeCall(callName, callArgs)))
             {
@@ -256,8 +274,17 @@ internal sealed class ChatOrchestrator(
               $" Khách hàng đang được thảo luận trong phiên hội thoại này có mã {currentCustomerId}; " +
               "nếu người dùng dùng cụm như \"khách hàng này\" hoặc không nêu lại mã khách hàng, hãy dùng đúng mã này khi gọi tool.";
 
+    /// <summary>
+    /// P0-10: get_campaigns is deliberately included. Its customerId is required, not an optional
+    /// filter — a campaign lookup is always scoped to one customer (plan D10) — so "chiến dịch của
+    /// khách hàng này" must resolve from session state exactly like the other customer-scoped
+    /// tools, and a session with no active customer must fail with CUSTOMER_ID_REQUIRED rather than
+    /// quietly widening into a list-everything query.
+    /// </summary>
     private static bool RequiresCustomerId(string toolName) =>
-        toolName is ApprovedMcpToolNames.GetCustomer or ApprovedMcpToolNames.GetInteractions or ApprovedMcpToolNames.GenerateEmail;
+        toolName is ApprovedMcpToolNames.GetCustomer or ApprovedMcpToolNames.GetInteractions
+            or ApprovedMcpToolNames.GenerateEmail or ApprovedMcpToolNames.GetOpportunities
+            or ApprovedMcpToolNames.GetCampaigns or ApprovedMcpToolNames.GenerateCallScript;
 
     /// <summary>
     /// P0-08 live finding (turn 3): <c>generate_email</c> already performs its own nested retrieval
@@ -299,11 +326,16 @@ internal sealed class ChatOrchestrator(
     }
 
     /// <summary>
-    /// The three structured CRM tools whose successful result ends the turn immediately (P0-08).
-    /// <c>search_product_knowledge</c> is deliberately excluded — see <see cref="BuildDeterministicReply"/>.
+    /// The structured CRM tools whose successful result ends the turn immediately (P0-08, extended
+    /// in P0-10). <c>search_product_knowledge</c> is deliberately excluded — see
+    /// <see cref="BuildDeterministicReply"/>. Because every one of these is terminal,
+    /// <see cref="Minimize"/> is never reached for them: no result of theirs is ever fed back into
+    /// Gemini's context.
     /// </summary>
     private static bool IsTerminalStructuredTool(string toolName) =>
-        toolName is ApprovedMcpToolNames.GetCustomer or ApprovedMcpToolNames.GetInteractions or ApprovedMcpToolNames.GenerateEmail;
+        toolName is ApprovedMcpToolNames.GetCustomer or ApprovedMcpToolNames.GetInteractions
+            or ApprovedMcpToolNames.GenerateEmail or ApprovedMcpToolNames.GetOpportunities
+            or ApprovedMcpToolNames.GetCampaigns or ApprovedMcpToolNames.GenerateCallScript;
 
     /// <summary>
     /// P0-08 live acceptance finding: <see cref="Minimize"/> deliberately strips every semantic
@@ -352,9 +384,17 @@ internal sealed class ChatOrchestrator(
             ?? state.CurrentCustomerId;
         var customerLabel = customerId is { Length: > 0 } ? $"khách hàng {customerId}" : "khách hàng được yêu cầu";
 
-        return parsed.Error is null
-            ? $"Không đủ dữ liệu sản phẩm hoặc mẫu email phù hợp để soạn email cho {customerLabel}."
-            : $"Không tìm thấy {customerLabel}.";
+        if (parsed.Error is not null)
+        {
+            return $"Không tìm thấy {customerLabel}.";
+        }
+
+        // Error == null on a not_found is McpToolResponses.RagNoEvidence: the entity exists, the
+        // grounding evidence does not. Worded per generator so the RM can tell "no product/template
+        // evidence" apart from "no customer".
+        return toolName == ApprovedMcpToolNames.GenerateCallScript
+            ? $"Không đủ dữ liệu sản phẩm hoặc kịch bản gọi phù hợp để soạn kịch bản cho {customerLabel}."
+            : $"Không đủ dữ liệu sản phẩm hoặc mẫu email phù hợp để soạn email cho {customerLabel}.";
     }
 
     private static string BuildDeterministicReply(
@@ -371,6 +411,12 @@ internal sealed class ChatOrchestrator(
                 $"Đã tải hồ sơ {customerLabel}. Xem dữ liệu chi tiết bên dưới.",
             ApprovedMcpToolNames.GetInteractions =>
                 $"Đã tải {data.Interactions?.Count ?? 0} tương tác gần nhất của {customerLabel}. Xem dữ liệu chi tiết bên dưới.",
+            ApprovedMcpToolNames.GetOpportunities =>
+                $"Đã tải {data.Opportunities?.Count ?? 0} cơ hội bán của {customerLabel}. Xem dữ liệu chi tiết bên dưới.",
+            ApprovedMcpToolNames.GetCampaigns =>
+                $"Đã tải {data.Campaigns?.Count ?? 0} chiến dịch mà {customerLabel} thuộc diện tham gia. Xem dữ liệu chi tiết bên dưới.",
+            ApprovedMcpToolNames.GenerateCallScript =>
+                $"Đã tạo kịch bản gọi cho {customerLabel}. Kịch bản cần RM kiểm tra và phê duyệt.",
             _ =>
                 $"Đã tạo email nháp cho {customerLabel}. Bản nháp cần RM kiểm tra và phê duyệt.",
         };
@@ -381,6 +427,88 @@ internal sealed class ChatOrchestrator(
         var merged = args is null ? new Dictionary<string, object>() : new Dictionary<string, object>(args);
         merged["customerId"] = customerId;
         return merged;
+    }
+
+    /// <summary>
+    /// Browser-verified P0-10 finding: asked in plain Vietnamese ("Soạn email follow-up cho khách
+    /// hàng này về gửi tiết kiệm 6 tháng"), Gemini fills <c>productCode</c> with the natural-language
+    /// phrase — "gửi tiết kiệm 6 tháng" — rather than a catalogue code. The MCP tool then correctly
+    /// answers INVALID_ARGUMENT, so a perfectly reasonable request failed. Nothing was wrong at the
+    /// tool boundary: the model simply cannot know the catalogue, and the Host was passing its guess
+    /// through unexamined.
+    ///
+    /// So the Host normalizes identifier-shaped arguments before dispatch. A malformed value is
+    /// DROPPED, never repaired and never forwarded — the MCP validator stays exactly as strict, and
+    /// a direct MCP call carrying the same bad value still gets INVALID_ARGUMENT.
+    ///
+    /// The user's intent is not discarded with it: the phrase is folded into <c>objective</c>, where
+    /// it belongs, so the tool's own retrieval resolves it to a real product. That is the component
+    /// that actually knows the catalogue — mapping text to a product code is what the RAG step is
+    /// for, and guessing here would only move the same error one layer up.
+    /// </summary>
+    private Dictionary<string, object>? NormalizeIdentifierArguments(string toolName, Dictionary<string, object>? args)
+    {
+        if (args is null || args.Count == 0 ||
+            toolName is not (ApprovedMcpToolNames.GenerateEmail or ApprovedMcpToolNames.GenerateCallScript))
+        {
+            return args;
+        }
+
+        var normalized = new Dictionary<string, object>(args);
+        var droppedArguments = new List<string>();
+
+        if (TryGetString(normalized, "productCode", out var productCode) && !ProductCodeFormat.IsWellFormed(productCode))
+        {
+            normalized.Remove("productCode");
+            droppedArguments.Add("productCode");
+            FoldIntoObjective(normalized, productCode!);
+        }
+
+        // generate_call_script only. Same reasoning: an opportunity id the model invented is worse
+        // than no opportunity id, because the tool selects one deterministically when none is given.
+        if (toolName == ApprovedMcpToolNames.GenerateCallScript &&
+            TryGetString(normalized, "opportunityId", out var opportunityId) &&
+            !OpportunityIdPattern.IsMatch(opportunityId!))
+        {
+            normalized.Remove("opportunityId");
+            droppedArguments.Add("opportunityId");
+        }
+
+        if (droppedArguments.Count == 0)
+        {
+            return args;
+        }
+
+        // Argument NAMES only — a fixed vocabulary. The dropped values are model-authored free text
+        // and never logged.
+        logger.LogInformation(
+            "Dropped malformed model-supplied argument(s) {DroppedArguments} for {ToolName} before MCP dispatch",
+            string.Join(",", droppedArguments), toolName);
+
+        return normalized;
+    }
+
+    /// <summary>
+    /// Preserves the need the model expressed, bounded by the tool's own 500-character objective
+    /// limit so folding text in can never turn a valid call into an INVALID_ARGUMENT of its own.
+    /// </summary>
+    private static void FoldIntoObjective(Dictionary<string, object> args, string droppedText)
+    {
+        var trimmed = droppedText.Trim();
+        if (trimmed.Length == 0)
+        {
+            return;
+        }
+
+        var objective = TryGetString(args, "objective", out var existing) ? existing! : string.Empty;
+
+        if (objective.Contains(trimmed, StringComparison.OrdinalIgnoreCase))
+        {
+            return; // the phrase is already stated in the objective — nothing to add
+        }
+
+        var combined = objective.Length == 0 ? trimmed : $"{objective} — {trimmed}";
+        args["objective"] = combined.Length <= MaxObjectiveLength ? combined : combined[..MaxObjectiveLength];
     }
 
     /// <summary>P0-06: redact-then-append (docs/02_ARCHITECTURE.md §6 — no raw email/phone/account
@@ -434,6 +562,16 @@ internal sealed class ChatOrchestrator(
             return state with { CurrentCustomerId = emailCustomerId, LastIntent = toolName, UpdatedAtUtc = now };
         }
 
+        // P0-10: the three new tools are all customer-scoped, so a successful call establishes the
+        // session's active customer exactly as get_interactions/generate_email already do — a
+        // follow-up "khách hàng này" after an opportunity lookup must keep resolving.
+        if (toolName is ApprovedMcpToolNames.GetOpportunities or ApprovedMcpToolNames.GetCampaigns
+                or ApprovedMcpToolNames.GenerateCallScript &&
+            TryGetString(callArgs, "customerId", out var scopedCustomerId))
+        {
+            return state with { CurrentCustomerId = scopedCustomerId, LastIntent = toolName, UpdatedAtUtc = now };
+        }
+
         return state;
     }
 
@@ -443,6 +581,9 @@ internal sealed class ChatOrchestrator(
         ApprovedMcpToolNames.GetInteractions => accumulated with { Interactions = McpToolResultParser.ExtractInteractions(data) },
         ApprovedMcpToolNames.SearchProductKnowledge => accumulated with { KnowledgeMatches = McpToolResultParser.ExtractKnowledgeMatches(data) },
         ApprovedMcpToolNames.GenerateEmail => accumulated with { EmailDraft = McpToolResultParser.ExtractEmailDraft(data) },
+        ApprovedMcpToolNames.GetOpportunities => accumulated with { Opportunities = McpToolResultParser.ExtractOpportunities(data) },
+        ApprovedMcpToolNames.GetCampaigns => accumulated with { Campaigns = McpToolResultParser.ExtractCampaigns(data) },
+        ApprovedMcpToolNames.GenerateCallScript => accumulated with { CallScript = McpToolResultParser.ExtractCallScript(data) },
         _ => accumulated,
     };
 

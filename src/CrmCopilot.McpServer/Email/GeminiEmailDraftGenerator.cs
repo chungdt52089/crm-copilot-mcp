@@ -44,6 +44,18 @@ internal sealed class GeminiEmailDraftGenerator(Client client) : IEmailDraftGene
         8. suggestedProductCode, nếu có, phải là một productCode xuất hiện trong EVIDENCE_PRODUCT; nếu
            REQUESTED_PRODUCT_CODE đã chỉ định một mã cụ thể, suggestedProductCode PHẢI đúng bằng mã đó,
            không được đề xuất mã khác; nếu không sản phẩm nào phù hợp, để null.
+        9. body PHẢI gồm các đoạn theo đúng thứ tự sau, mỗi đoạn cách nhau bằng MỘT DÒNG TRỐNG
+           (ký tự "\n\n"), không gộp tất cả thành một khối:
+           a. Lời chào — mở đầu bằng "Kính gửi {{CUSTOMER_NAME}},".
+           b. Đoạn dẫn nhập — nhắc lại ngắn gọn nhu cầu/bối cảnh đã trao đổi.
+           c. Nội dung sản phẩm — chỉ nêu đặc điểm có trong EVIDENCE_PRODUCT.
+           d. Lời kêu gọi hành động — đề nghị một bước tiếp theo cụ thể.
+           e. Lời kết và chữ ký.
+        10. body là VĂN BẢN THUẦN. Không dùng HTML (ví dụ <p>, <br>, <div>) và không dùng Markdown
+            (ví dụ **đậm**, # tiêu đề). Xuống dòng chỉ bằng ký tự newline.
+        11. Ở phần chữ ký, KHÔNG bịa tên, chức danh, email, số điện thoại hay bất kỳ thông tin liên hệ
+            nào của RM hoặc của ngân hàng — những dữ liệu đó không có trong evidence. Dùng lời kết
+            trung tính, ví dụ "Trân trọng," và để RM tự bổ sung chữ ký trước khi gửi.
         """;
 
     private const string RawSchemaJson =

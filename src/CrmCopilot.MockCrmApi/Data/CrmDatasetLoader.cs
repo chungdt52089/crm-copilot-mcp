@@ -21,16 +21,24 @@ internal static class CrmDatasetLoader
     {
         var customersPath = Path.Combine(directory, "customers.json");
         var interactionsPath = Path.Combine(directory, "interactions.json");
+        var opportunitiesPath = Path.Combine(directory, "opportunities.json");
+        var campaignsPath = Path.Combine(directory, "campaigns.json");
 
         var customers = ReadJsonFile<List<CustomerDto>>(customersPath);
         var interactions = ReadJsonFile<List<InteractionDto>>(interactionsPath);
+        var opportunities = ReadJsonFile<List<OpportunityDto>>(opportunitiesPath);
+        var campaigns = ReadJsonFile<List<CampaignDto>>(campaignsPath);
 
-        Validate(customers, interactions);
+        Validate(customers, interactions, opportunities, campaigns);
 
-        return new CrmDataset(customers, interactions);
+        return new CrmDataset(customers, interactions, opportunities, campaigns);
     }
 
-    internal static void Validate(IReadOnlyList<CustomerDto> customers, IReadOnlyList<InteractionDto> interactions)
+    internal static void Validate(
+        IReadOnlyList<CustomerDto> customers,
+        IReadOnlyList<InteractionDto> interactions,
+        IReadOnlyList<OpportunityDto> opportunities,
+        IReadOnlyList<CampaignDto> campaigns)
     {
         var errors = new List<string>();
         var customerIds = new HashSet<string>();
@@ -88,9 +96,129 @@ internal static class CrmDatasetLoader
             }
         }
 
+        ValidateOpportunities(opportunities, customerIds, errors);
+        ValidateCampaigns(campaigns, customerIds, errors);
+
         if (errors.Count > 0)
         {
             throw new InvalidOperationException("CRM dataset failed validation:" + Environment.NewLine + string.Join(Environment.NewLine, errors));
+        }
+    }
+
+    private static void ValidateOpportunities(
+        IReadOnlyList<OpportunityDto> opportunities, HashSet<string> customerIds, List<string> errors)
+    {
+        var opportunityIds = new HashSet<string>();
+
+        foreach (var opportunity in opportunities)
+        {
+            if (!opportunity.Id.StartsWith("OPP-", StringComparison.Ordinal))
+            {
+                errors.Add($"Opportunity id '{opportunity.Id}' does not use the OPP- prefix.");
+            }
+
+            if (!opportunityIds.Add(opportunity.Id))
+            {
+                errors.Add($"Duplicate opportunity id '{opportunity.Id}'.");
+            }
+
+            if (!opportunity.Synthetic)
+            {
+                errors.Add($"Opportunity '{opportunity.Id}' is not marked synthetic.");
+            }
+
+            if (opportunity.ExpectedCloseDateUtc.Kind != DateTimeKind.Utc)
+            {
+                errors.Add($"Opportunity '{opportunity.Id}' ExpectedCloseDateUtc is not UTC.");
+            }
+
+            if (!customerIds.Contains(opportunity.CustomerId))
+            {
+                errors.Add($"Opportunity '{opportunity.Id}' references unknown customer '{opportunity.CustomerId}'.");
+            }
+
+            // Ordinal, not OrdinalIgnoreCase: the checked-in dataset is generated with the canonical
+            // casing, so anything else here is dataset corruption rather than caller leniency.
+            if (!OpportunityStatuses.All.Contains(opportunity.Status, StringComparer.Ordinal))
+            {
+                errors.Add(
+                    $"Opportunity '{opportunity.Id}' has status '{opportunity.Status}', which is not one of " +
+                    $"{string.Join("/", OpportunityStatuses.All)}.");
+            }
+
+            // Format only — see ProductCodeFormat's remarks and plan D17 for why existence against
+            // data/knowledge/products.json is a test-level invariant, not a runtime one here.
+            if (!ProductCodeFormat.IsWellFormed(opportunity.ProductCode))
+            {
+                errors.Add($"Opportunity '{opportunity.Id}' has a malformed productCode '{opportunity.ProductCode}'.");
+            }
+
+            if (opportunity.AmountVnd < 0)
+            {
+                errors.Add($"Opportunity '{opportunity.Id}' has a negative amountVnd.");
+            }
+        }
+    }
+
+    private static void ValidateCampaigns(
+        IReadOnlyList<CampaignDto> campaigns, HashSet<string> customerIds, List<string> errors)
+    {
+        var campaignIds = new HashSet<string>();
+
+        foreach (var campaign in campaigns)
+        {
+            if (!campaign.Id.StartsWith("CMP-", StringComparison.Ordinal))
+            {
+                errors.Add($"Campaign id '{campaign.Id}' does not use the CMP- prefix.");
+            }
+
+            if (!campaignIds.Add(campaign.Id))
+            {
+                errors.Add($"Duplicate campaign id '{campaign.Id}'.");
+            }
+
+            if (!campaign.Synthetic)
+            {
+                errors.Add($"Campaign '{campaign.Id}' is not marked synthetic.");
+            }
+
+            if (campaign.StartDateUtc.Kind != DateTimeKind.Utc)
+            {
+                errors.Add($"Campaign '{campaign.Id}' StartDateUtc is not UTC.");
+            }
+
+            if (campaign.EndDateUtc.Kind != DateTimeKind.Utc)
+            {
+                errors.Add($"Campaign '{campaign.Id}' EndDateUtc is not UTC.");
+            }
+
+            if (campaign.EndDateUtc < campaign.StartDateUtc)
+            {
+                errors.Add($"Campaign '{campaign.Id}' ends before it starts.");
+            }
+
+            if (campaign.ProductCodes.Count == 0)
+            {
+                errors.Add($"Campaign '{campaign.Id}' has no productCodes.");
+            }
+
+            foreach (var productCode in campaign.ProductCodes)
+            {
+                if (!ProductCodeFormat.IsWellFormed(productCode))
+                {
+                    errors.Add($"Campaign '{campaign.Id}' has a malformed productCode '{productCode}'.");
+                }
+            }
+
+            // The eligibility list is the whole point of the campaign record (plan D10) — an unknown
+            // id here would silently make a customer un-targetable rather than fail loudly.
+            foreach (var customerId in campaign.EligibleCustomerIds)
+            {
+                if (!customerIds.Contains(customerId))
+                {
+                    errors.Add($"Campaign '{campaign.Id}' references unknown customer '{customerId}'.");
+                }
+            }
         }
     }
 

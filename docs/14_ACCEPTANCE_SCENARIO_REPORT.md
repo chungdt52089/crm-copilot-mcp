@@ -1,4 +1,8 @@
-# 14 — Acceptance Scenario Report (P0-09)
+# 14 — Acceptance Scenario Report (P0-09, cập nhật ở P0-10)
+
+Bộ 8 scenario là deliverable của P0-09. Bản cập nhật gần nhất (**2026-08-26**) ghi kết quả chạy lại
+trên `feature/p0-10-complete-mcp-tool-list` sau khi P0-10 nâng tool list từ 4 lên 7 — lớp L và lớp B
+ở §4/§5 là evidence của đợt đó.
 
 Bản tường thuật được commit của bộ 8 scenario nội bộ định nghĩa ở `docs/03_ACCEPTANCE_CRITERIA.md` §6.
 Số liệu điền từ output thật của `AcceptanceScenarioTests` / `LiveAcceptanceScenarioTests`; báo cáo
@@ -24,10 +28,17 @@ báo **Skipped** thì ghi `NOT RUN`, **không** ghi PASS và **không** mượn 
 
 ## 2. Kết quả lớp D (deterministic offline)
 
-- Ngày chạy: **2026-08-25**
-- Commit gốc: `a91c041` (develop HEAD) + thay đổi P0-09 trên `feature/p0-09-deployment-readiness`
+- Ngày chạy gần nhất: **2026-08-26** trên `feature/p0-10-complete-mcp-tool-list` (base `c7bcbd6`,
+  thay đổi chưa commit) — chạy lại sau khi P0-10 thêm 3 MCP tool, để chứng minh không regression.
+  Lần chạy đầu tiên của bộ này là 2026-08-25 trên `feature/p0-09-deployment-readiness` (base
+  `a91c041`), cũng cho 8/8.
 - Lệnh: `dotnet test tests/CrmCopilot.Tests/CrmCopilot.Tests.csproj --no-build --no-restore --filter-class "CrmCopilot.Tests.Acceptance.AcceptanceScenarioTests"`
 - **ScenarioAccuracy: 8/8** · Failed: 0 · Errored (không đánh giá được): 0 · Tổng số check: **75**
+- Bối cảnh suite rộng hơn cùng đợt 2026-08-26: `dotnet build CrmCopilot.slnx` **succeeded**; offline
+  đầy đủ **508 total / 503 succeeded / 0 failed / 5 skipped** (đúng 5 live opt-in, không phải
+  regression); targeted **83 total / 82 succeeded / 0 failed / 1 skipped** (skip là
+  `LiveRagAcceptanceTests` khi chưa cấp live credential); `tools/list` đúng **7 tool**;
+  `git diff --check` exit 0.
 - **Quality target 8/8: MET**
 
 | ID | Scenario | Boundary | Lớp | Outcome | Checks | ms |
@@ -69,13 +80,30 @@ nới `InputGuard` để lấy điểm. RM vẫn nên tham chiếu khách hàng 
 
 ## 4. Kết quả lớp L (live gate)
 
-> **NOT RUN** tại thời điểm viết. Cần `GEMINI_API_KEY` thật, Chroma và MockCrmApi đang chạy.
-> Theo công thức verdict (§5), live gate chưa chạy ⇒ verdict tối đa là **PARTIAL**.
+- Ngày chạy: **2026-08-26** (trên `feature/p0-10-complete-mcp-tool-list`, thay đổi chưa commit)
+- Điều kiện: `GEMINI_API_KEY` thật (chỉ nằm trong terminal của Product Owner, không đọc/in/ghi log ở
+  bất kỳ đâu), Chroma + MockCrmApi + McpServer + Web đang chạy
+- Health preflight **4/4 HTTP 200**: `:5100/health`, `:5090/health`, `:5081/health`,
+  `:8000/api/v2/heartbeat`
 
 | ID | Scenario | Lớp | Outcome |
 | --- | --- | --- | --- |
-| T07 | Email draft RAG (live) | L | *(chưa chạy)* |
-| T08 | Safety / resilience (live) | L | *(chưa chạy)* |
+| T07 | Email draft RAG (live) | L | **PASS** |
+| T08 | Safety / resilience (live) | L | **PASS** |
+
+Toàn bộ live gate của repo, chạy cùng đợt:
+
+| Live test class | Kết quả |
+| --- | --- |
+| `LiveRagAcceptanceTests` | 1/1 PASS (exit code 0) |
+| `LiveCallScriptGenerationAcceptanceTests` | 2/2 PASS |
+| `LiveAcceptanceScenarioTests` (T07/T08) | 1/1 PASS |
+| `LiveEmailGenerationAcceptanceTests` | 1/1 PASS |
+| **Tổng** | **5/5 PASS · 0 failed · 0 skipped** |
+
+Không còn live test nào ở trạng thái Skipped trong đợt này — nên không có mục nào phải ghi `NOT RUN`.
+Trong bộ **offline** mặc định, 5 test này vẫn báo Skipped đúng như thiết kế opt-in; đó là lý do lượt
+offline có `5 skipped` mà không phải regression.
 
 ### 4.1 Contract greeting ở lớp L — hai nhánh đều hợp lệ
 
@@ -98,9 +126,56 @@ output của model do fixture kiểm soát.
 
 ## 5. Kết quả lớp B (browser demo) và verdict
 
-> **NOT RUN** tại thời điểm viết. Bảng evidence Run 1–3 và quy tắc reset chuỗi nằm ở §8 của plan P0-09.
+- Ngày chạy: **2026-08-26** · **3 lượt liên tiếp, tất cả PASS**
+- Mỗi lượt bắt đầu bằng **New conversation**; **không** build lại và **không** restart service giữa
+  các lượt (điều kiện để chuỗi được tính là liên tiếp)
+
+Xác nhận trong cả ba lượt:
+
+| Hạng mục | Kết quả |
+| --- | --- |
+| Customer lookup | hoạt động |
+| "khách hàng này" giữ đúng conversation state | đúng |
+| Interaction history | hoạt động |
+| Email generation | thành công |
+| Call-script generation | thành công |
+| RM approval hiển thị | có |
+| Lỗi tool / internal message rò rỉ | không có |
+| Thời gian generate | < 15 giây |
+| Source chips | **không** chứa retrieval candidate mà draft không dùng |
+| Tiếng Việt có dấu | đúng |
+| Placeholder thô còn sót | không |
+| Bịa lãi suất | không |
+| Bịa danh tính/liên hệ RM | không |
+
+### 5.1 PII và secret
+
+Tool trace chỉ hiển thị **tên các trường** đã ẩn — `name`, `email`, `phone`, `accountReference` —
+không có giá trị thô. Secret scan không phát hiện Gemini API key trong tracked corpus.
+
+### 5.2 UI error contract
+
+Internal error code giữ nguyên `CUSTOMER_ID_INVALID`. Public/UI message là:
+
+```text
+Mã khách hàng không hợp lệ. Vui lòng kiểm tra đúng định dạng và thử lại.
+```
+
+Message này **không** công khai format convention, regex, `INVALID_ARGUMENT`, tên validator, stack
+trace hay bất kỳ chi tiết triển khai nào. Input sai định dạng (`CS-0002`, `CS-0003`, `CS-0004`) bị
+từ chối sớm, **không** được tự sửa thành mã khách hàng hợp lệ, và **không** làm thay đổi
+conversation state.
+
+Cảnh báo `Đang hiển thị dữ liệu của khách hàng CUS-0002.` khi màn hình vẫn giữ dữ liệu hợp lệ trước
+đó là **hành vi UI đúng**, không phải rò rỉ: hiển thị một ID khách hàng hợp lệ trong dữ liệu hoặc
+trong cảnh báo dữ liệu cũ khác với việc công khai quy ước định dạng trong thông báo lỗi.
+
+### 5.3 Verdict
 
 Verdict cuối chỉ là **PASS** khi đồng thời: build sạch; offline suite `failed == 0` với đúng tập skip
-đã liệt kê; 0 scenario `Error`; `ScenarioAccuracy ≥ 7/8`; **cả ba** mandatory live gate đã CHẠY và
-PASS; 3 browser run PASS liên tiếp; secret scan và runtime-log PII scan sạch; tài liệu đã đồng bộ.
-Chi tiết công thức ở §9 của plan P0-09 và evidence row P0-09 trong `docs/CHECKPOINT_STATUS.md`.
+đã liệt kê; 0 scenario `Error`; `ScenarioAccuracy ≥ 7/8`; mandatory live gate đã CHẠY và PASS;
+3 browser run PASS liên tiếp; secret scan sạch; tài liệu đã đồng bộ.
+
+Tính tới 2026-08-26, mọi điều kiện trên đã có evidence (xem row P0-10 ở `docs/CHECKPOINT_STATUS.md`
+§1). Trạng thái checkpoint vì vậy là **READY_FOR_FINAL_REVIEW** — evidence đầy đủ, **chưa** có final
+review độc lập. Tài liệu này **không** tự tuyên bố PASS; verdict thuộc về reviewer.

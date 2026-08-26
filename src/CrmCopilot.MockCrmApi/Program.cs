@@ -43,13 +43,23 @@ static bool TryRunDatasetGeneration(string[] args)
     var customerCount = ParseIntArg(args, "--customers") ?? DatasetGenerationOptions.DefaultCustomerCount;
     var outputDirectory = ParseStringArg(args, "--output") ?? DefaultDatasetOutputDirectory();
 
-    var (customers, interactions) = SyntheticDatasetGenerator.Generate(new DatasetGenerationOptions(seed, customerCount));
+    var options = new DatasetGenerationOptions(seed, customerCount);
+    var (customers, interactions) = SyntheticDatasetGenerator.Generate(options);
+
+    // P0-10: opportunities/campaigns come from a separate, Random-free generator that only reads
+    // the already-generated customers — so regenerating them can never perturb the customer/
+    // interaction byte output or its checked-in hashes (plan D9).
+    var (opportunities, campaigns) = SyntheticRelationshipDatasetGenerator.Generate(options, customers);
 
     Directory.CreateDirectory(outputDirectory);
     File.WriteAllText(Path.Combine(outputDirectory, "customers.json"), JsonSerializer.Serialize(customers, CrmJsonOptions.Indented));
     File.WriteAllText(Path.Combine(outputDirectory, "interactions.json"), JsonSerializer.Serialize(interactions, CrmJsonOptions.Indented));
+    File.WriteAllText(Path.Combine(outputDirectory, "opportunities.json"), JsonSerializer.Serialize(opportunities, CrmJsonOptions.Indented));
+    File.WriteAllText(Path.Combine(outputDirectory, "campaigns.json"), JsonSerializer.Serialize(campaigns, CrmJsonOptions.Indented));
 
-    Console.WriteLine($"Generated {customers.Count} customers / {interactions.Count} interactions (seed={seed}) into {outputDirectory}");
+    Console.WriteLine(
+        $"Generated {customers.Count} customers / {interactions.Count} interactions / " +
+        $"{opportunities.Count} opportunities / {campaigns.Count} campaigns (seed={seed}) into {outputDirectory}");
     return true;
 }
 

@@ -12,6 +12,12 @@ internal static class ApprovedMcpToolNames
     public const string SearchProductKnowledge = "search_product_knowledge";
     public const string GenerateEmail = "generate_email";
 
-    public static readonly IReadOnlySet<string> All =
-        new HashSet<string>([GetCustomer, GetInteractions, SearchProductKnowledge, GenerateEmail], StringComparer.Ordinal);
+    // P0-10 — the three tools that complete the seven-tool set (docs/07 §2/§10).
+    public const string GetOpportunities = "get_opportunities";
+    public const string GetCampaigns = "get_campaigns";
+    public const string GenerateCallScript = "generate_call_script";
+
+    public static readonly IReadOnlySet<string> All = new HashSet<string>(
+        [GetCustomer, GetInteractions, SearchProductKnowledge, GenerateEmail, GetOpportunities, GetCampaigns, GenerateCallScript],
+        StringComparer.Ordinal);
 }

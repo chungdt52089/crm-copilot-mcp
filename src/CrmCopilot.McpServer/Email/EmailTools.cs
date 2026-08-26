@@ -33,7 +33,7 @@ internal sealed class EmailTools(
     ILogger<EmailTools> logger)
 {
     private const int MaxObjectiveLength = 500;
-    private const int MaxProductCodeLength = 40;
+    private const int MaxProductCodeLength = ProductCodeFormat.MaxLength;
     private const int ProductTopK = 3;
     private const int TemplateTopK = 2;
     private const int InteractionLimit = 5;
@@ -52,10 +52,12 @@ internal sealed class EmailTools(
 
     private static readonly string[] AllowedTones = ["professional", "professional_warm", "concise"];
 
-    // Derived from the 6 checked-in records in data/knowledge/products.json (docs/06 has no
-    // formal regex of its own): PRD- followed by 2-3 further hyphen-separated uppercase-
-    // alphanumeric segments, e.g. PRD-SAV-006M, PRD-CARD-CASHBACK-01.
-    private static readonly Regex ProductCodePattern = new(@"^PRD-[A-Z0-9]+(-[A-Z0-9]+){1,3}$", RegexOptions.Compiled);
+    /// <summary>Minimum blank-line-separated paragraphs in a body — see <see cref="CountParagraphs"/>.</summary>
+    private const int MinBodyParagraphs = 3;
+
+    private static readonly Regex HtmlTagPattern = new(@"<\s*/?\s*[a-zA-Z][^>]*>", RegexOptions.Compiled);
+    private static readonly Regex MarkdownEmphasisPattern = new(@"\*\*", RegexOptions.Compiled);
+    private static readonly Regex MarkdownHeadingPattern = new(@"^\s{0,3}#{1,6}\s", RegexOptions.Compiled | RegexOptions.Multiline);
 
     private static readonly Regex PercentagePattern = new(@"\d+(?:[.,]\d+)?\s*%", RegexOptions.Compiled);
     private static readonly Regex VndAmountPattern =
@@ -315,7 +317,9 @@ internal sealed class EmailTools(
                 return $"productCode vượt quá {MaxProductCodeLength} ký tự.";
             }
 
-            if (!ProductCodePattern.IsMatch(productCode))
+            // Length is checked above first, so the distinct "too long" message still wins for an
+            // over-length code even though ProductCodeFormat also bounds length (plan D18).
+            if (!ProductCodeFormat.IsWellFormed(productCode))
             {
                 return "productCode không đúng định dạng (ví dụ PRD-SAV-006M).";
             }
@@ -361,6 +365,21 @@ internal sealed class EmailTools(
         if (string.IsNullOrWhiteSpace(raw.Subject) || string.IsNullOrWhiteSpace(raw.Body))
         {
             return "empty_subject_or_body";
+        }
+
+        // Browser-verified P0-10 finding: drafts arrived as one undifferentiated block of prose,
+        // which reads badly in the RM-facing panel and gives the RM nothing to edit section by
+        // section. The prompt asks for five named parts; this enforces the structural minimum that
+        // makes those parts visible at all. The UI already preserves the newlines
+        // (.draft-body uses white-space: pre-wrap), so paragraphs here are paragraphs on screen.
+        if (CountParagraphs(raw.Body!) < MinBodyParagraphs)
+        {
+            return "body_not_multi_paragraph";
+        }
+
+        if (ContainsMarkup(raw.Body!) || ContainsMarkup(raw.Subject!))
+        {
+            return "markup_in_body";
         }
 
         // F1 fix: System.Text.Json does not enforce non-null for reference-type properties, so a
@@ -477,6 +496,27 @@ internal sealed class EmailTools(
                accentedLetterCount < letterCount * MinVietnameseAccentRatio;
     }
 
+    /// <summary>
+    /// Counts blank-line-separated paragraphs, tolerant of CRLF. A model that emitted the five
+    /// required parts always clears <see cref="MinBodyParagraphs"/>; the threshold is deliberately
+    /// lower than five so a draft that merges, say, the intro into the product paragraph is
+    /// accepted rather than sent back — this guards "not one undifferentiated block", not an exact
+    /// shape.
+    /// </summary>
+    private static int CountParagraphs(string body) => body
+        .Replace("\r\n", "\n", StringComparison.Ordinal)
+        .Split("\n\n", StringSplitOptions.RemoveEmptyEntries)
+        .Count(paragraph => !string.IsNullOrWhiteSpace(paragraph));
+
+    /// <summary>
+    /// Rejects HTML tags and the two Markdown constructs a model actually reaches for unprompted
+    /// (bold, ATX headings). Deliberately does NOT treat a leading "-" as Markdown: a dash-prefixed
+    /// line is ordinary Vietnamese business prose, and flagging it would send valid drafts back for
+    /// a pointless retry.
+    /// </summary>
+    private static bool ContainsMarkup(string text) =>
+        HtmlTagPattern.IsMatch(text) || MarkdownEmphasisPattern.IsMatch(text) || MarkdownHeadingPattern.IsMatch(text);
+
     private static bool NumericClaimsAreVerified(
         string text, IReadOnlyList<KnowledgeMatch> productMatches, IReadOnlyList<KnowledgeMatch> templateMatches)
     {
@@ -505,6 +545,10 @@ internal sealed class EmailTools(
     {
         "empty_subject_or_body" =>
             "Phản hồi trước có subject hoặc body rỗng dù status là \"ok\". Cung cấp subject và body đầy đủ, hoặc trả status \"insufficient_evidence\" nếu không đủ evidence.",
+        "body_not_multi_paragraph" =>
+            "Phản hồi trước có body là một khối văn bản liền. Viết lại body thành các đoạn cách nhau bằng MỘT DÒNG TRỐNG (\"\\n\\n\") theo đúng thứ tự: lời chào, đoạn dẫn nhập, nội dung sản phẩm, lời kêu gọi hành động, lời kết và chữ ký.",
+        "markup_in_body" =>
+            "Phản hồi trước chứa HTML hoặc Markdown. Viết lại bằng văn bản thuần: không thẻ HTML, không **đậm**, không # tiêu đề. Chỉ dùng ký tự newline để xuống dòng.",
         "used_source_ids_empty" =>
             "Phản hồi trước có usedSourceIds rỗng dù status là \"ok\". Phải trích dẫn ít nhất một source ID từ evidence đã cung cấp.",
         "source_ids_not_subset" =>

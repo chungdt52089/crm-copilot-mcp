@@ -50,7 +50,10 @@ public class EmailToolsTests
         IEnumerable<string>? usedSourceIds = null,
         string? suggestedProductCode = "PRD-SAV-006M",
         string subject = "Thông tin tham khảo về tiền gửi kỳ hạn 6 tháng",
-        string body = "Kính gửi {{CUSTOMER_NAME}}, đây là thông tin tham khảo.",
+        // Multi-paragraph by default since P0-10: EmailTools now requires a body to be structured
+        // into blank-line-separated parts rather than one undifferentiated block.
+        string body = "Kính gửi {{CUSTOMER_NAME}},\n\nCảm ơn Anh/Chị đã trao đổi.\n\n"
+            + "Đây là thông tin tham khảo về sản phẩm.\n\nMong Anh/Chị phản hồi thời gian phù hợp.\n\nTrân trọng,",
         bool requiresHumanApproval = true,
         IReadOnlyList<string>? warnings = null) =>
         new(
@@ -166,11 +169,19 @@ public class EmailToolsTests
         Assert.Null(crm.LastLookupQuery);
     }
 
+    /// <summary>
+    /// The MCP boundary stays exactly as strict after the P0-10 Host-side normalizer: dropping a
+    /// malformed productCode is the Host's job, and a client calling this tool directly with the
+    /// same value must still get INVALID_ARGUMENT rather than a silently-ignored argument. The
+    /// natural-language cases are the ones the browser run actually produced.
+    /// </summary>
     [Theory]
     [InlineData("prd-sav-006m")]
     [InlineData("PRD SAV 006M")]
     [InlineData("DROP TABLE products")]
     [InlineData("random-text")]
+    [InlineData("gửi tiết kiệm 6 tháng")]
+    [InlineData("Tiền gửi kỳ hạn 6 tháng")]
     public async Task GenerateEmail_ProductCodeInvalidFormat_ReturnsInvalidArgumentWithoutCallingCrmGateway(string productCode)
     {
         var (tools, crm, _, _, _) = CreateTools();
@@ -691,7 +702,8 @@ public class EmailToolsTests
     public async Task GenerateEmail_PlaceholderPresent_RestoredWithCustomerFullName()
     {
         var (tools, _, _, generator, _) = CreateTools();
-        generator.Results.Enqueue(ValidRaw(body: "Kính gửi {{CUSTOMER_NAME}}, nội dung email."));
+        generator.Results.Enqueue(ValidRaw(
+            body: "Kính gửi {{CUSTOMER_NAME}},\n\nNội dung email.\n\nTrân trọng,"));
 
         var result = await tools.GenerateEmail("CUS-0001", "objective", cancellationToken: TestContext.Current.CancellationToken);
 
@@ -719,7 +731,9 @@ public class EmailToolsTests
     public async Task GenerateEmail_PlaceholderMissingFromModelOutput_BodyGetsNeutralGreeting_SubjectUnchanged()
     {
         var (tools, _, _, generator, _) = CreateTools();
-        generator.Results.Enqueue(ValidRaw(subject: "Thông tin sản phẩm", body: "Nội dung email không có placeholder."));
+        generator.Results.Enqueue(ValidRaw(
+            subject: "Thông tin sản phẩm",
+            body: "Nội dung email không có placeholder.\n\nMong Anh/Chị phản hồi.\n\nTrân trọng,"));
 
         var result = await tools.GenerateEmail("CUS-0001", "objective", cancellationToken: TestContext.Current.CancellationToken);
 
@@ -826,14 +840,18 @@ public class EmailToolsTests
     /// prose that still carries the {{CUSTOMER_NAME}} placeholder and quotes an accented product
     /// name — so neither the restored name nor the quoted evidence may mask the unaccented prose.</summary>
     private const string UnaccentedBody =
-        "Kinh gui {{CUSTOMER_NAME}}, chung toi xin gui thong tin tham khao ve san pham Tiền gửi kỳ hạn 6 tháng. " +
+        "Kinh gui {{CUSTOMER_NAME}},\n\n" +
+        "chung toi xin gui thong tin tham khao ve san pham Tiền gửi kỳ hạn 6 tháng. " +
         "Day la thong tin duoc tong hop tu ho so hien co cua quy khach, mong quy khach danh chut thoi gian xem qua " +
-        "va phan hoi lai thoi gian phu hop de chung toi lien he tu van chi tiet hon.";
+        "va phan hoi lai thoi gian phu hop de chung toi lien he tu van chi tiet hon.\n\n" +
+        "Tran trong,";
 
     private const string AccentedBody =
-        "Kính gửi {{CUSTOMER_NAME}}, chúng tôi xin gửi thông tin tham khảo về sản phẩm tiền gửi kỳ hạn 6 tháng. " +
+        "Kính gửi {{CUSTOMER_NAME}},\n\n" +
+        "chúng tôi xin gửi thông tin tham khảo về sản phẩm tiền gửi kỳ hạn 6 tháng. " +
         "Đây là thông tin được tổng hợp từ hồ sơ hiện có của quý khách, mong quý khách dành chút thời gian xem qua " +
-        "và phản hồi lại thời gian phù hợp để chúng tôi liên hệ tư vấn chi tiết hơn.";
+        "và phản hồi lại thời gian phù hợp để chúng tôi liên hệ tư vấn chi tiết hơn.\n\n" +
+        "Trân trọng,";
 
     [Fact]
     public async Task GenerateEmail_UnaccentedVietnameseBody_TriggersExactlyOneRetryThenSucceeds()
@@ -891,7 +909,8 @@ public class EmailToolsTests
     public async Task GenerateEmail_ShortUnaccentedBody_IsNotFlagged_NoFalsePositiveOnTooLittleSignal()
     {
         var (tools, _, _, generator, _) = CreateTools();
-        generator.Results.Enqueue(ValidRaw(body: "Kinh gui {{CUSTOMER_NAME}}, cam on quy khach."));
+        generator.Results.Enqueue(ValidRaw(
+            body: "Kinh gui {{CUSTOMER_NAME}},\n\ncam on quy khach.\n\nTran trong,"));
 
         var result = await tools.GenerateEmail(
             "CUS-0001", "Follow-up", cancellationToken: TestContext.Current.CancellationToken);

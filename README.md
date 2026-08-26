@@ -99,7 +99,8 @@ ChatGPT không thể tự biết thay đổi trong phiên Claude nếu chưa đ�
 - P0-06 — Conversation State: **DONE** (PASS; live acceptance confirmed 2026-08-24; merged to `develop` via PR #11, `042f65b` → merge `340b678`; xem mục 8 "Conversation State (P0-06)" và `docs/CHECKPOINT_STATUS.md`)
 - P0-07 — RAG Email Draft + PII: **DONE** (PASS; live acceptance confirmed 2026-08-24; merged to `develop` via PR #12, `b463742` → merge `ba4c2ba`; xem `docs/CHECKPOINT_STATUS.md`)
 - P0-08 — Web UI + Trace + Sources: **DONE (merged)** (merged to `develop` via PR #13, `cf2ae3e` → merge `a91c041`; verdict chưa được ghi trong `docs/CHECKPOINT_STATUS.md` tại thời điểm merge — xem blocker B-04)
-- P0-09 — Acceptance, Hardening & Demo (Pha A): **IN PROGRESS** trên `feature/p0-09-deployment-readiness` (xem mục 8 "Acceptance & Demo (P0-09)")
+- P0-09 — Acceptance, Hardening & Demo (Pha A): **DONE (merged)** — merged vào `develop` qua PR #14 (`c7bcbd6`). Product Owner chốt: *PASS by Product Owner with explicit waiver/defer; C5/C6/C8 chưa chạy, được chuyển thành deferred verification debt.* Xem `docs/CHECKPOINT_STATUS.md`.
+- P0-10 — Hoàn thiện tool list (4 → 7 MCP tools): **READY_FOR_FINAL_REVIEW** trên `feature/p0-10-complete-mcp-tool-list` (tạo từ `develop` @ `c7bcbd6`). Implementation xong; build/offline/targeted/live/browser/security evidence đã đạt; **chưa** có final review độc lập, **chưa** merge. Xem mục 8 "Acceptance & Demo" và `docs/CHECKPOINT_STATUS.md`.
 
 `develop` chưa được merge vào `main` — `main` vẫn ở `afa47fd` (docs baseline).
 
@@ -160,7 +161,7 @@ Không tham số sẽ tái tạo đúng dataset đã checked-in (12 customers / 
 
 ### Gemini Embedding & Chroma RAG (P0-03)
 
-RAG code sống trong `CrmCopilot.McpServer` (`Knowledge/`), theo đúng phân vai kiến trúc — MCP Server sở hữu RAG orchestration (docs/02_ARCHITECTURE.md §3). Nguồn dữ liệu là `data/knowledge/products.json` (6 sản phẩm) và `data/knowledge/email-templates.json` (8 template), tổng 14 record, `synthetic: true`, `language: "vi"`; Chroma chỉ là index có thể xoá và tái tạo lại từ hai file này.
+RAG code sống trong `CrmCopilot.McpServer` (`Knowledge/`), theo đúng phân vai kiến trúc — MCP Server sở hữu RAG orchestration (docs/02_ARCHITECTURE.md §3). Nguồn dữ liệu là `data/knowledge/products.json` (6 sản phẩm), `data/knowledge/email-templates.json` (8 template) và `data/knowledge/call-scripts.json` (7 playbook kịch bản gọi, thêm ở P0-10) — tổng **21 record**, `synthetic: true`, `language: "vi"`; Chroma chỉ là index có thể xoá và tái tạo lại từ ba file này. `KnowledgeSourceLoader` đọc đúng ba file theo tên tường minh (không glob), và validate `sourceId` không trùng ngay khi load.
 
 **Chạy Chroma cục bộ** (image đã pin, volume đặt tên để dữ liệu tồn tại qua việc xoá container — chưa thêm `compose.yaml`, xem docs/02 §10):
 
@@ -185,8 +186,8 @@ dotnet run --project src/CrmCopilot.McpServer --no-build -- --query-knowledge "<
 
 ```powershell
 $env:CHROMA_COLLECTION_NAME = "crm-copilot-knowledge-livetest"   # tuỳ chọn — cô lập khỏi collection dev mặc định
-dotnet run --project src/CrmCopilot.McpServer --no-build -- --ingest-knowledge   # lần 1: kỳ vọng 14 embedded, count=14
-dotnet run --project src/CrmCopilot.McpServer --no-build -- --ingest-knowledge   # lần 2: kỳ vọng 0 embedded/14 unchanged, count vẫn=14
+dotnet run --project src/CrmCopilot.McpServer --no-build -- --ingest-knowledge   # lần 1 (collection rỗng): kỳ vọng 21 embedded, count=21
+dotnet run --project src/CrmCopilot.McpServer --no-build -- --ingest-knowledge   # lần 2: kỳ vọng 0 embedded/21 unchanged, count vẫn=21
 dotnet run --project src/CrmCopilot.McpServer --no-build -- --query-knowledge "Khách hàng quan tâm gửi tiết kiệm an toàn kỳ hạn 6 tháng, cần liên hệ lại."
 # kỳ vọng PRD-SAV-006M nằm trong top-3, L2 norm ~1.0
 ```
@@ -345,13 +346,64 @@ Vài điểm về thiết kế của bộ này, cần biết trước khi đọc
 - **T02/T03 được đánh giá ở MCP tool boundary**, không qua `/api/chat`. `InputGuard` (quyết định D7 của P0-05, `src/CrmCopilot.Web/Chat/InputGuard.cs`) **cố ý** từ chối message chứa cụm tên viết hoa liên tiếp mà không kèm `CUS-####`. Chạy hai scenario tra cứu-theo-tên qua chat sẽ fail *đúng theo thiết kế*, nên chúng được đo ở tầng tool — không nới `InputGuard` để "cho pass".
 - Scenario dùng `DatasetCrmGateway`: dataset thật đã checked-in + logic search thật của P0-02, nên T02/T03/T05 kiểm chứng hành vi hệ thống chứ không kiểm chứng setup của chính test.
 
+#### Lớp L — live gate (opt-in)
+
+Live test **không bao giờ** chạy trong bộ mặc định. Chúng dùng `[Fact(SkipUnless = ...)]`, nên thiếu
+credential thì báo **Skipped** — và Skipped **không bao giờ** được tính là PASS: một live gate chưa
+chạy giới hạn checkpoint ở mức PARTIAL, và kết quả offline không được mượn để thay thế.
+
+**Biến môi trường cần cho live tests:**
+
+| Biến | Cần cho | Ví dụ |
+| --- | --- | --- |
+| `GEMINI_API_KEY` | tất cả live test | *(giá trị thật, chỉ trong session của bạn)* |
+| `CHROMA_BASE_URL` | tất cả live test | `http://localhost:8000` |
+| `MOCKCRM_API_BASE_URL` | live test có gọi CRM | `http://localhost:5100` |
+
+**Nhập `GEMINI_API_KEY` an toàn.** Không gõ thẳng key vào dòng lệnh (nó vào lịch sử shell), không
+commit và không paste vào chat/log. Dùng prompt ẩn:
+
 ```powershell
-# Lớp L (live gate) — cần GEMINI_API_KEY thật + Chroma + MockCrmApi đang chạy
-dotnet test tests/CrmCopilot.Tests/CrmCopilot.Tests.csproj --no-build --no-restore `
-  --filter-class "CrmCopilot.Tests.Acceptance.LiveAcceptanceScenarioTests"
+$env:GEMINI_API_KEY = (Read-Host -AsSecureString "GEMINI_API_KEY" |
+  ForEach-Object { [Runtime.InteropServices.Marshal]::PtrToStringBSTR(
+      [Runtime.InteropServices.Marshal]::SecureStringToBSTR($_)) })
+$env:CHROMA_BASE_URL = "http://localhost:8000"
+$env:MOCKCRM_API_BASE_URL = "http://localhost:5100"
 ```
 
-Live gate dùng collection cô lập `crm-copilot-knowledge-livetest`. Thiếu credential thì test báo **Skipped** — và Skipped **không bao giờ** là PASS: theo công thức verdict của P0-09, một live gate chưa chạy giới hạn checkpoint ở mức PARTIAL, và kết quả offline không được mượn để thay thế.
+Biến chỉ tồn tại trong session PowerShell hiện tại; đóng cửa sổ là mất.
+
+**Năm live test class:**
+
+| Class | Chứng minh |
+| --- | --- |
+| `CrmCopilot.Tests.Knowledge.LiveRagAcceptanceTests` | Heartbeat, ingest toàn corpus, idempotency, canonical retrieval |
+| `CrmCopilot.Tests.Email.LiveEmailGenerationAcceptanceTests` | Email draft grounded thật, placeholder restore |
+| `CrmCopilot.Tests.CallScript.LiveCallScriptGenerationAcceptanceTests` | Call script grounded thật, tự seed collection, idempotency, luồng câu ngắn |
+| `CrmCopilot.Tests.Acceptance.LiveAcceptanceScenarioTests` | Scenario T07/T08 ở lớp L |
+
+```powershell
+# Chạy toàn bộ live gate
+dotnet test tests/CrmCopilot.Tests/CrmCopilot.Tests.csproj --no-build --no-restore `
+  --filter-namespace "CrmCopilot.Tests" --filter-class "CrmCopilot.Tests.Acceptance.LiveAcceptanceScenarioTests"
+# ...và lần lượt các class còn lại bằng --filter-class tương ứng.
+```
+
+**Cô lập collection.** Mọi live test ghi vào collection riêng `crm-copilot-knowledge-livetest`, không
+bao giờ ghi vào collection dev mặc định `crm-copilot-knowledge`. `LiveRagAcceptanceTests` assert tên
+collection đã resolve **trước khi** ghi bất cứ gì, nên nếu `PostConfigure` ngừng tác dụng thì test
+dừng lại thay vì ghi nhầm.
+
+**Corpus expectation là thuộc tính, không phải con số.** Corpus hiện có 21 document, nhưng live RAG
+test **không** hard-code số đó — nó lấy kỳ vọng từ chính tập document nguồn rồi assert các thuộc
+tính: nguồn không rỗng; `sourceId` duy nhất; có đủ ba loại `Product`/`EmailTemplate`/`CallScript`;
+vector count khớp số document nguồn; lần ingest thứ hai `Embedded == 0` và toàn bộ được skip; vector
+count không tăng; canonical retrieval vẫn trả `kb:product:PRD-SAV-006M`. Nhờ vậy corpus lớn lên
+(14 → 21 ở P0-10) không làm test sai, trong khi document trùng hoặc loader trả rỗng vẫn bị bắt.
+
+Nếu vector count **lớn hơn** số document nguồn, đó là vector cũ từ corpus trước còn sót (upsert theo
+id ổn định, không bao giờ xoá). Xử lý: drop **chỉ** collection `crm-copilot-knowledge-livetest` rồi
+chạy lại. Tuyệt đối không xoá collection mặc định và không xoá Chroma volume.
 
 ### Secret hygiene
 

@@ -137,6 +137,15 @@ internal static class McpToolResultParser
     public static EmailDraftDto? ExtractEmailDraft(JsonElement? data) =>
         Deserialize<GenerateEmailData>(data)?.Draft;
 
+    public static IReadOnlyList<OpportunityDto>? ExtractOpportunities(JsonElement? data) =>
+        Deserialize<GetOpportunitiesData>(data)?.Opportunities;
+
+    public static IReadOnlyList<CampaignDto>? ExtractCampaigns(JsonElement? data) =>
+        Deserialize<GetCampaignsData>(data)?.Campaigns;
+
+    public static CallScriptDraftDto? ExtractCallScript(JsonElement? data) =>
+        Deserialize<GenerateCallScriptData>(data)?.Draft;
+
     private static T? Deserialize<T>(JsonElement? data) where T : class =>
         data is { } value ? value.Deserialize<T>(CrmJsonOptions.Default) : null;
 }

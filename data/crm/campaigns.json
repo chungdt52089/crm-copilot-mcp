@@ -1,0 +1,57 @@
+[
+  {
+    "id": "CMP-0001",
+    "name": "Ưu đãi tiền gửi mùa thu 2026",
+    "objective": "Giới thiệu sản phẩm tiền gửi kỳ hạn tới khách hàng ưu tiên.",
+    "targetSegment": "Priority",
+    "productCodes": [
+      "PRD-SAV-006M",
+      "PRD-SAV-012M"
+    ],
+    "eligibleCustomerIds": [
+      "CUS-0001",
+      "CUS-0002",
+      "CUS-0005"
+    ],
+    "startDateUtc": "2026-07-26T09:00:00Z",
+    "endDateUtc": "2026-09-29T09:00:00Z",
+    "status": "Active",
+    "synthetic": true
+  },
+  {
+    "id": "CMP-0002",
+    "name": "Giới thiệu thẻ hoàn tiền",
+    "objective": "Mở rộng tệp khách hàng dùng thẻ tín dụng hoàn tiền.",
+    "targetSegment": "Priority",
+    "productCodes": [
+      "PRD-CARD-CASHBACK-01"
+    ],
+    "eligibleCustomerIds": [
+      "CUS-0001",
+      "CUS-0003"
+    ],
+    "startDateUtc": "2026-08-25T09:00:00Z",
+    "endDateUtc": "2026-10-24T09:00:00Z",
+    "status": "Planned",
+    "synthetic": true
+  },
+  {
+    "id": "CMP-0003",
+    "name": "Chăm sóc khách hàng vay",
+    "objective": "Theo dõi và hỗ trợ khách hàng đang có khoản vay.",
+    "targetSegment": "Standard",
+    "productCodes": [
+      "PRD-LOAN-PERSONAL-01",
+      "PRD-LOAN-HOME-01"
+    ],
+    "eligibleCustomerIds": [
+      "CUS-0002",
+      "CUS-0004",
+      "CUS-0006"
+    ],
+    "startDateUtc": "2026-08-10T09:00:00Z",
+    "endDateUtc": "2026-10-14T09:00:00Z",
+    "status": "Active",
+    "synthetic": true
+  }
+]
