@@ -23,6 +23,15 @@ internal sealed class KnowledgeTools(IKnowledgeRetriever knowledgeRetriever, IHt
     private const int MaxTopK = 5;
     private const string InternalErrorMessage = "Đã xảy ra lỗi không mong muốn.";
 
+    /// <summary>
+    /// The document types this tool exposes, per docs/07 §6 — deliberately NOT every member of
+    /// <see cref="KnowledgeDocumentType"/>. Call scripts share the collection but are outside this
+    /// tool's contract: they are reachable only through generate_call_script's own retrieval, so
+    /// they can neither be requested here explicitly nor leak in through an unfiltered query.
+    /// </summary>
+    private static readonly KnowledgeDocumentType[] SearchableDocumentTypes =
+        [KnowledgeDocumentType.Product, KnowledgeDocumentType.EmailTemplate];
+
     [McpServerTool(Name = "search_product_knowledge", ReadOnly = true, Destructive = false)]
     [Description("Tìm product knowledge và email guidance bằng semantic search. Chỉ dùng cho kiến thức sản phẩm/template; không dùng để tìm customer hoặc interaction.")]
     public async Task<string> SearchProductKnowledge(
@@ -115,7 +124,8 @@ internal sealed class KnowledgeTools(IKnowledgeRetriever knowledgeRetriever, IHt
             var mapped = new KnowledgeDocumentType[documentTypes.Count];
             for (var i = 0; i < documentTypes.Count; i++)
             {
-                if (!KnowledgeDocumentTypeWireFormat.TryFromWire(documentTypes[i], out var documentType))
+                if (!KnowledgeDocumentTypeWireFormat.TryFromWire(documentTypes[i], out var documentType) ||
+                    !SearchableDocumentTypes.Contains(documentType))
                 {
                     return $"documentTypes chứa giá trị không hợp lệ: '{documentTypes[i]}'.";
                 }
@@ -124,6 +134,16 @@ internal sealed class KnowledgeTools(IKnowledgeRetriever knowledgeRetriever, IHt
             }
 
             mappedDocumentTypes = mapped;
+        }
+        else
+        {
+            // P0-10 (plan D7). This used to leave the filter null, i.e. unfiltered. That was
+            // equivalent to [Product, EmailTemplate] only for as long as those were the only two
+            // document types in the collection; once call-script documents were ingested into the
+            // same collection an unfiltered query would silently start returning them, changing the
+            // results of an already-verified P0 tool — including the canonical PRD-SAV-006M ranking
+            // this project's acceptance evidence depends on. The default is now stated explicitly.
+            mappedDocumentTypes = SearchableDocumentTypes;
         }
 
         return null;

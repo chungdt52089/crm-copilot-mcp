@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using CrmCopilot.McpServer.CallScript;
 using CrmCopilot.McpServer.Crm;
 using CrmCopilot.McpServer.Email;
 using CrmCopilot.McpServer.Knowledge;
@@ -23,11 +24,17 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddCrmGateway(builder.Configuration);
 builder.Services.AddKnowledgeRetrieval(builder.Configuration);
 builder.Services.AddEmailGeneration();
+builder.Services.AddCallScriptGeneration();
 builder.Services.AddMcpServer()
     .WithHttpTransport(options => options.SessionMode = HttpServerSessionMode.Stateless)
     .WithTools<CustomerTools>()
     .WithTools<KnowledgeTools>()
-    .WithTools<EmailTools>();
+    .WithTools<EmailTools>()
+    // P0-10 (plan D16): tool discovery is explicit per type — AddEmailGeneration()/
+    // AddCallScriptGeneration() only wire DI and never publish a tool to tools/list.
+    .WithTools<OpportunityTools>()
+    .WithTools<CampaignTools>()
+    .WithTools<CallScriptTools>();
 
 var app = builder.Build();
 

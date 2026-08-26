@@ -26,6 +26,11 @@ internal sealed class DatasetCrmGateway : ICrmGateway
     public CustomerLookupQuery? LastLookupQuery { get; private set; }
     public string? LastInteractionsCustomerId { get; private set; }
     public int? LastInteractionsLimit { get; private set; }
+    public string? LastOpportunitiesCustomerId { get; private set; }
+    public string? LastOpportunitiesStatus { get; private set; }
+    public int? LastOpportunitiesLimit { get; private set; }
+    public string? LastCampaignsCustomerId { get; private set; }
+    public int? LastCampaignsLimit { get; private set; }
 
     public Task<CustomerLookupResult> FindCustomerAsync(CustomerLookupQuery query, CancellationToken cancellationToken)
     {
@@ -49,5 +54,42 @@ internal sealed class DatasetCrmGateway : ICrmGateway
         }
 
         return Task.FromResult(_dataset.GetInteractions(customerId, limit));
+    }
+
+    public Task<IReadOnlyList<OpportunityDto>> GetOpportunitiesAsync(
+        string customerId, string? status, int limit, CancellationToken cancellationToken)
+    {
+        LastOpportunitiesCustomerId = customerId;
+        LastOpportunitiesStatus = status;
+        LastOpportunitiesLimit = limit;
+
+        if (!string.IsNullOrWhiteSpace(status) && !OpportunityStatuses.TryNormalize(status, out _))
+        {
+            // Same boundary behaviour as MockCrmGateway: an unrecognized status is a caller error
+            // here, never a silently empty page.
+            throw new ArgumentException($"status must be one of {string.Join("/", OpportunityStatuses.All)}.", nameof(status));
+        }
+
+        if (!_dataset.CustomerExists(customerId))
+        {
+            throw new CrmNotFoundException(customerId, traceId: null);
+        }
+
+        OpportunityStatuses.TryNormalize(status, out var normalized);
+        return Task.FromResult(_dataset.GetOpportunities(
+            customerId, string.IsNullOrWhiteSpace(status) ? null : normalized, limit));
+    }
+
+    public Task<IReadOnlyList<CampaignDto>> GetCampaignsAsync(string customerId, int limit, CancellationToken cancellationToken)
+    {
+        LastCampaignsCustomerId = customerId;
+        LastCampaignsLimit = limit;
+
+        if (!_dataset.CustomerExists(customerId))
+        {
+            throw new CrmNotFoundException(customerId, traceId: null);
+        }
+
+        return Task.FromResult(_dataset.GetCampaigns(customerId, limit));
     }
 }

@@ -76,7 +76,8 @@ internal static class ChatEndpoints
     private static int MapErrorCodeToHttpStatus(string? code) => code switch
     {
         ChatTurnErrorCode.InvalidArgument or ChatTurnErrorCode.PiiRejected or ChatTurnErrorCode.NameLookupNotSupported or
-            ChatTurnErrorCode.CustomerIdRequired or ChatTurnErrorCode.UnknownTool or ChatTurnErrorCode.DuplicateToolCall or
+            ChatTurnErrorCode.CustomerIdRequired or ChatTurnErrorCode.CustomerIdInvalid or
+            ChatTurnErrorCode.UnknownTool or ChatTurnErrorCode.DuplicateToolCall or
             ChatTurnErrorCode.MultipleFunctionCallsNotSupported => StatusCodes.Status400BadRequest,
         ChatTurnErrorCode.ToolLoopLimitExceeded => StatusCodes.Status409Conflict,
         ChatTurnErrorCode.UpstreamUnavailable or ChatTurnErrorCode.RagUnavailable or ChatTurnErrorCode.McpUnavailable =>

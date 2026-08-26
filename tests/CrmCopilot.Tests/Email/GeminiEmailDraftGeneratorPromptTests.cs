@@ -182,4 +182,35 @@ public class GeminiEmailDraftGeneratorPromptTests
         Assert.Contains("summary: {{CUSTOMER_NAME}} quan tâm gửi tiết kiệm", text);
         Assert.Contains("nextAction: (không có)", text);
     }
+
+    // ---- P0-10: body presentation rules ---------------------------------------------------------
+
+    /// <summary>
+    /// The five named parts and the blank-line separator are stated to the model, not merely
+    /// enforced afterwards by EmailTools — a validator that rejects without the prompt ever asking
+    /// for the shape just burns the single retry.
+    /// </summary>
+    [Fact]
+    public void BuildSystemInstruction_SpellsOutTheFivePartBodyStructure()
+    {
+        var instruction = GeminiEmailDraftGenerator.BuildSystemInstruction(null);
+
+        Assert.Contains("MỘT DÒNG TRỐNG", instruction, StringComparison.Ordinal);
+        Assert.Contains("Lời chào", instruction, StringComparison.Ordinal);
+        Assert.Contains("Đoạn dẫn nhập", instruction, StringComparison.Ordinal);
+        Assert.Contains("Nội dung sản phẩm", instruction, StringComparison.Ordinal);
+        Assert.Contains("Lời kêu gọi hành động", instruction, StringComparison.Ordinal);
+        Assert.Contains("Lời kết và chữ ký", instruction, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildSystemInstruction_ForbidsMarkupAndInventedRelationshipManagerDetails()
+    {
+        var instruction = GeminiEmailDraftGenerator.BuildSystemInstruction(null);
+
+        Assert.Contains("VĂN BẢN THUẦN", instruction, StringComparison.Ordinal);
+        Assert.Contains("Markdown", instruction, StringComparison.Ordinal);
+        // No invented signature block: name/title/contact details are not in the evidence.
+        Assert.Contains("KHÔNG bịa tên, chức danh, email, số điện thoại", instruction, StringComparison.Ordinal);
+    }
 }

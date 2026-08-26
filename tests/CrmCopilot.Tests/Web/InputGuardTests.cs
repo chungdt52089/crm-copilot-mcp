@@ -118,4 +118,90 @@ public class InputGuardTests
         Assert.False(result.IsAllowed);
         Assert.Equal(ChatTurnErrorCode.InvalidArgument, result.ErrorCode);
     }
+
+    // ---- P0-10: malformed customer identifier (browser-verified) --------------------------------
+
+    /// <summary>
+    /// The guard must fire whether or not a session customer exists. With one, the old code treated
+    /// "khách hàng ..." as a resolvable follow-up and waved the whole message — typo included —
+    /// through to Gemini, which then substituted the session customer and reported success.
+    /// </summary>
+    [Theory]
+    [InlineData("Tra cứu khách hàng CS-0002")]
+    [InlineData("Tra cứu khách hàng CS-0003")]
+    [InlineData("Tra cứu khách hàng CS-0004")]
+    public void Validate_MalformedCustomerId_RejectedRegardlessOfSessionState(string message)
+    {
+        var fresh = InputGuard.Validate(message);
+        var withSession = InputGuard.Validate(message, currentCustomerId: "CUS-0002");
+
+        Assert.False(fresh.IsAllowed);
+        Assert.Equal(ChatTurnErrorCode.CustomerIdInvalid, fresh.ErrorCode);
+        Assert.False(withSession.IsAllowed);
+        Assert.Equal(ChatTurnErrorCode.CustomerIdInvalid, withSession.ErrorCode);
+    }
+
+    /// <summary>A malformed id is a different failure from "no id supplied" — and must not be
+    /// reported as the latter, which would tell the RM to do what they just did.</summary>
+    [Fact]
+    public void Validate_MalformedCustomerId_IsNotReportedAsCustomerIdRequired()
+    {
+        var result = InputGuard.Validate("Tra cứu khách hàng CS-0003");
+
+        Assert.NotEqual(ChatTurnErrorCode.CustomerIdRequired, result.ErrorCode);
+        Assert.Equal("Mã khách hàng không hợp lệ. Vui lòng kiểm tra đúng định dạng và thử lại.", result.ErrorMessage);
+    }
+
+    /// <summary>
+    /// The public message must not teach the id convention. Spelling the pattern out in an error
+    /// hands a caller the shape of every valid customer key; the rule belongs in the validator, the
+    /// tests and docs/07 — none of which an end user sees.
+    /// </summary>
+    [Fact]
+    public void Validate_MalformedCustomerId_PublicMessageLeaksNoFormatConvention()
+    {
+        var message = InputGuard.Validate("Tra cứu khách hàng CS-0003").ErrorMessage!;
+
+        Assert.DoesNotContain("CUS-", message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("####", message, StringComparison.Ordinal);
+        Assert.DoesNotContain(@"\d", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("regex", message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("CustomerIdFormat", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Validate_MessageMixingAValidAndAMalformedId_IsRejected()
+    {
+        var result = InputGuard.Validate("So sánh khách hàng CUS-0001 với CS-0003");
+
+        Assert.False(result.IsAllowed);
+        Assert.Equal(ChatTurnErrorCode.CustomerIdInvalid, result.ErrorCode);
+    }
+
+    /// <summary>
+    /// The guard is narrow by design: the other identifier families in this system must pass. Product
+    /// codes and template/call-script ids do not even match the customer-id shape (they end in three
+    /// digits plus a letter, or two digits); OPP/INT/CMP/ACC/RM do match it and are allowlisted.
+    /// </summary>
+    [Theory]
+    [InlineData("Khách hàng CUS-0002 có cơ hội OPP-0002 nào không?")]
+    [InlineData("Xem tương tác INT-0001 của khách hàng CUS-0002")]
+    [InlineData("Chiến dịch CMP-0001 của khách hàng CUS-0002")]
+    [InlineData("Soạn email cho khách hàng CUS-0002 về sản phẩm PRD-SAV-006M")]
+    [InlineData("Dùng mẫu TPL-EMAIL-MATURITY-01 cho khách hàng CUS-0002")]
+    [InlineData("Kịch bản CS-CALL-SAVINGS-FOLLOWUP-01 cho khách hàng CUS-0002")]
+    public void Validate_OtherIdentifierFamilies_AreAllowed(string message)
+    {
+        var result = InputGuard.Validate(message, currentCustomerId: "CUS-0002");
+
+        Assert.True(result.IsAllowed, $"Message was wrongly rejected as {result.ErrorCode}: {message}");
+    }
+
+    [Fact]
+    public void Validate_WellFormedCustomerId_StillAllowed()
+    {
+        Assert.True(InputGuard.Validate("Tìm khách hàng CUS-0002").IsAllowed);
+        // Well-formed but nonexistent is a lookup outcome, not an input-shape problem.
+        Assert.True(InputGuard.Validate("Tìm khách hàng CUS-9999").IsAllowed);
+    }
 }

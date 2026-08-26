@@ -49,6 +49,17 @@ internal sealed class CustomerTools(ICrmGateway crmGateway, IHttpContextAccessor
                         : "Phải cung cấp customerId hoặc query.",
                     retryable: false);
             }
+            else if (hasCustomerId && !CustomerIdFormat.IsValid(customerId))
+            {
+                // P0-10 defense in depth. The Host now refuses a malformed id before Gemini sees it,
+                // but a direct MCP client bypasses the Host entirely — and without this check a typo
+                // like "CS-0003" reached the gateway and came back NOT_FOUND, which asserts the id
+                // was well-formed and simply absent. It was not; that is a different failure and
+                // must be reported as one. `query` stays free text: it is a name, not an id.
+                status = McpToolStatus.Error;
+                result = McpToolResponses.Error(
+                    traceId, McpToolErrorCode.InvalidArgument, CustomerIdFormat.InvalidMessage, retryable: false);
+            }
             else
             {
                 var lookupQuery = hasCustomerId

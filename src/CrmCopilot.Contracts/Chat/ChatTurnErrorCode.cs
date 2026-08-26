@@ -15,6 +15,12 @@ public static class ChatTurnErrorCode
     public const string ToolLoopLimitExceeded = "TOOL_LOOP_LIMIT_EXCEEDED";
     public const string PiiRejected = "PII_REJECTED";
     public const string CustomerIdRequired = "CUSTOMER_ID_REQUIRED";
+
+    /// <summary>P0-10: the message named an identifier shaped like a customer id but not matching
+    /// <see cref="Crm.CustomerIdFormat"/> (e.g. <c>CS-0002</c>). Distinct from
+    /// <see cref="CustomerIdRequired"/> (no id given at all) and from <see cref="NotFound"/> (a
+    /// well-formed id that does not exist) — conflating it with either misinforms the RM.</summary>
+    public const string CustomerIdInvalid = "CUSTOMER_ID_INVALID";
     public const string NameLookupNotSupported = "NAME_LOOKUP_NOT_SUPPORTED";
 
     // Gemini/MCP boundary failures (plan D4/D9).

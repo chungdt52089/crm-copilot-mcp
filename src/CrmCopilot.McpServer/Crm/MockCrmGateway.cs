@@ -68,6 +68,72 @@ internal sealed class MockCrmGateway(HttpClient httpClient) : ICrmGateway
         throw await BuildUpstreamExceptionAsync(response, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<IReadOnlyList<OpportunityDto>> GetOpportunitiesAsync(
+        string customerId, string? status, int limit, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(customerId);
+
+        if (limit is < 1 or > 20)
+        {
+            throw new ArgumentOutOfRangeException(nameof(limit), limit, "limit must be between 1 and 20.");
+        }
+
+        var requestUri = $"/api/customers/{Uri.EscapeDataString(customerId)}/opportunities?limit={limit}";
+
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            // Normalized here rather than forwarded verbatim so an unrecognized value fails as a
+            // caller error at this boundary, instead of reaching the API as a 400 that
+            // BuildUpstreamExceptionAsync would then report as upstream contract drift.
+            if (!OpportunityStatuses.TryNormalize(status, out var normalizedStatus))
+            {
+                throw new ArgumentException($"status must be one of {string.Join("/", OpportunityStatuses.All)}.", nameof(status));
+            }
+
+            requestUri += $"&status={Uri.EscapeDataString(normalizedStatus)}";
+        }
+
+        return await GetCustomerScopedListAsync<OpportunityDto>(requestUri, customerId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<CampaignDto>> GetCampaignsAsync(string customerId, int limit, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(customerId);
+
+        if (limit is < 1 or > 20)
+        {
+            throw new ArgumentOutOfRangeException(nameof(limit), limit, "limit must be between 1 and 20.");
+        }
+
+        var requestUri = $"/api/customers/{Uri.EscapeDataString(customerId)}/campaigns?limit={limit}";
+
+        return await GetCustomerScopedListAsync<CampaignDto>(requestUri, customerId, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Shared 200/404/other mapping for the two customer-scoped collection endpoints added in
+    /// P0-10 — identical in shape to <see cref="GetInteractionsAsync"/>'s body, which predates it
+    /// and is left untouched.
+    /// </summary>
+    private async Task<IReadOnlyList<T>> GetCustomerScopedListAsync<T>(
+        string requestUri, string customerId, CancellationToken cancellationToken)
+    {
+        using var response = await SendGetAsync(requestUri, cancellationToken).ConfigureAwait(false);
+
+        if (response.StatusCode == HttpStatusCode.OK)
+        {
+            return await ReadDataAsync<IReadOnlyList<T>>(response, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            var traceId = await TryReadErrorTraceIdAsync(response, cancellationToken).ConfigureAwait(false);
+            throw new CrmNotFoundException(customerId, traceId);
+        }
+
+        throw await BuildUpstreamExceptionAsync(response, cancellationToken).ConfigureAwait(false);
+    }
+
     private async Task<HttpResponseMessage> SendGetAsync(string requestUri, CancellationToken cancellationToken)
     {
         try

@@ -1,0 +1,82 @@
+[
+  {
+    "id": "OPP-0001",
+    "customerId": "CUS-0001",
+    "productCode": "PRD-CARD-CASHBACK-01",
+    "stage": "Closed Won",
+    "amountVnd": 80000000,
+    "expectedCloseDateUtc": "2026-07-01T09:00:00Z",
+    "status": "Won",
+    "synthetic": true
+  },
+  {
+    "id": "OPP-0002",
+    "customerId": "CUS-0001",
+    "productCode": "PRD-SAV-006M",
+    "stage": "Proposal",
+    "amountVnd": 250000000,
+    "expectedCloseDateUtc": "2026-09-10T09:00:00Z",
+    "status": "Open",
+    "synthetic": true
+  },
+  {
+    "id": "OPP-0003",
+    "customerId": "CUS-0002",
+    "productCode": "PRD-LOAN-PERSONAL-01",
+    "stage": "Qualification",
+    "amountVnd": 420000000,
+    "expectedCloseDateUtc": "2026-09-24T09:00:00Z",
+    "status": "Open",
+    "synthetic": true
+  },
+  {
+    "id": "OPP-0004",
+    "customerId": "CUS-0003",
+    "productCode": "PRD-INS-LIFE-01",
+    "stage": "Discovery",
+    "amountVnd": 60000000,
+    "expectedCloseDateUtc": "2026-10-09T09:00:00Z",
+    "status": "Open",
+    "synthetic": true
+  },
+  {
+    "id": "OPP-0005",
+    "customerId": "CUS-0005",
+    "productCode": "PRD-LOAN-PERSONAL-01",
+    "stage": "Qualification",
+    "amountVnd": 225000000,
+    "expectedCloseDateUtc": "2026-09-29T09:00:00Z",
+    "status": "Open",
+    "synthetic": true
+  },
+  {
+    "id": "OPP-0006",
+    "customerId": "CUS-0006",
+    "productCode": "PRD-INS-LIFE-01",
+    "stage": "Proposal",
+    "amountVnd": 250000000,
+    "expectedCloseDateUtc": "2026-10-06T09:00:00Z",
+    "status": "Lost",
+    "synthetic": true
+  },
+  {
+    "id": "OPP-0007",
+    "customerId": "CUS-0007",
+    "productCode": "PRD-SAV-012M",
+    "stage": "Negotiation",
+    "amountVnd": 275000000,
+    "expectedCloseDateUtc": "2026-10-13T09:00:00Z",
+    "status": "Open",
+    "synthetic": true
+  },
+  {
+    "id": "OPP-0008",
+    "customerId": "CUS-0008",
+    "productCode": "PRD-LOAN-HOME-01",
+    "stage": "Discovery",
+    "amountVnd": 300000000,
+    "expectedCloseDateUtc": "2026-10-20T09:00:00Z",
+    "status": "Closed",
+    "synthetic": true
+  }
+]

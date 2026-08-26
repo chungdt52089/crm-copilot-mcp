@@ -3,10 +3,10 @@ using CrmCopilot.Contracts.Crm.Exceptions;
 namespace CrmCopilot.Contracts.Crm;
 
 /// <summary>
-/// Neutral abstraction over CRM customer/interaction lookups (docs/06_DATA_AND_MOCK_API_SPEC.md
-/// §8). P0 implementation is MockCrmGateway, calling CrmCopilot.MockCrmApi over HTTP. Adding a
-/// member to this interface is a breaking change for every implementer — it is not a free
-/// extension point.
+/// Neutral abstraction over CRM customer/interaction/opportunity/campaign lookups
+/// (docs/06_DATA_AND_MOCK_API_SPEC.md §8). P0 implementation is MockCrmGateway, calling
+/// CrmCopilot.MockCrmApi over HTTP. Adding a member to this interface is a breaking change for
+/// every implementer — it is not a free extension point.
 /// </summary>
 public interface ICrmGateway
 {
@@ -25,4 +25,36 @@ public interface ICrmGateway
     /// 5xx/transport/malformed-response conditions.
     /// </summary>
     Task<IReadOnlyList<InteractionDto>> GetInteractionsAsync(string customerId, int limit, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// P0-10. Returns an empty list only when the customer exists and has no opportunity matching
+    /// <paramref name="status"/>.
+    ///
+    /// <paramref name="status"/> is optional; when supplied it must be one of
+    /// <see cref="OpportunityStatuses.All"/> (case-insensitive) or
+    /// <see cref="ArgumentException"/> is thrown. Filtering by status happens strictly BEFORE
+    /// <paramref name="limit"/> is applied (plan Amendment A1) — otherwise a customer whose newest
+    /// records are all Won would return nothing for a status=Open request.
+    ///
+    /// Ordering is ExpectedCloseDateUtc ascending, then Id ascending, so the "first Open
+    /// opportunity" the call-script pipeline selects is deterministic.
+    ///
+    /// Throws <see cref="ArgumentOutOfRangeException"/> if <paramref name="limit"/> is outside
+    /// 1-20. Throws <see cref="CrmNotFoundException"/> if the customer does not exist. Throws
+    /// <see cref="CrmUpstreamException"/> for 5xx/transport/malformed-response conditions.
+    /// </summary>
+    Task<IReadOnlyList<OpportunityDto>> GetOpportunitiesAsync(
+        string customerId, string? status, int limit, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// P0-10. Returns the campaigns whose <see cref="CampaignDto.EligibleCustomerIds"/> contains
+    /// <paramref name="customerId"/> — never the full campaign list (plan D10). Returns an empty
+    /// list only when the customer exists and belongs to no campaign.
+    ///
+    /// Ordering is StartDateUtc descending, then Id ascending. Throws
+    /// <see cref="ArgumentOutOfRangeException"/> if <paramref name="limit"/> is outside 1-20.
+    /// Throws <see cref="CrmNotFoundException"/> if the customer does not exist. Throws
+    /// <see cref="CrmUpstreamException"/> for 5xx/transport/malformed-response conditions.
+    /// </summary>
+    Task<IReadOnlyList<CampaignDto>> GetCampaignsAsync(string customerId, int limit, CancellationToken cancellationToken);
 }

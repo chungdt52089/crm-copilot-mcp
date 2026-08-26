@@ -24,16 +24,21 @@ internal static class KnowledgeSourceLoader
     {
         var products = ReadJsonFile<List<ProductKnowledgeDto>>(Path.Combine(directory, "products.json"));
         var templates = ReadJsonFile<List<EmailTemplateKnowledgeDto>>(Path.Combine(directory, "email-templates.json"));
+        var callScripts = ReadJsonFile<List<CallScriptKnowledgeDto>>(Path.Combine(directory, "call-scripts.json"));
 
-        Validate(products, templates);
+        Validate(products, templates, callScripts);
 
-        var documents = new List<KnowledgeSourceDocument>(products.Count + templates.Count);
+        var documents = new List<KnowledgeSourceDocument>(products.Count + templates.Count + callScripts.Count);
         documents.AddRange(products.Select(RenderProduct));
         documents.AddRange(templates.Select(RenderTemplate));
+        documents.AddRange(callScripts.Select(RenderCallScript));
         return documents;
     }
 
-    internal static void Validate(IReadOnlyList<ProductKnowledgeDto> products, IReadOnlyList<EmailTemplateKnowledgeDto> templates)
+    internal static void Validate(
+        IReadOnlyList<ProductKnowledgeDto> products,
+        IReadOnlyList<EmailTemplateKnowledgeDto> templates,
+        IReadOnlyList<CallScriptKnowledgeDto> callScripts)
     {
         var errors = new List<string>();
         var sourceIds = new HashSet<string>();
@@ -94,6 +99,46 @@ internal static class KnowledgeSourceLoader
             }
         }
 
+        foreach (var callScript in callScripts)
+        {
+            if (!callScript.SourceId.StartsWith("kb:call-script:", StringComparison.Ordinal))
+            {
+                errors.Add($"Call script sourceId '{callScript.SourceId}' does not use the kb:call-script: prefix.");
+            }
+
+            if (!sourceIds.Add(callScript.SourceId))
+            {
+                errors.Add($"Duplicate sourceId '{callScript.SourceId}'.");
+            }
+
+            if (!callScript.Synthetic)
+            {
+                errors.Add($"Call script '{callScript.SourceId}' is not marked synthetic.");
+            }
+
+            if (callScript.Language != "vi")
+            {
+                errors.Add($"Call script '{callScript.SourceId}' language is not 'vi'.");
+            }
+
+            if (string.IsNullOrWhiteSpace(callScript.ScriptId))
+            {
+                errors.Add($"Call script '{callScript.SourceId}' has an empty scriptId.");
+            }
+
+            // A script whose guidance sections are empty would still embed and still retrieve, then
+            // silently give the generator nothing to ground the corresponding output section on.
+            if (string.IsNullOrWhiteSpace(callScript.OpeningGuidance) || string.IsNullOrWhiteSpace(callScript.ClosingGuidance))
+            {
+                errors.Add($"Call script '{callScript.SourceId}' has empty opening or closing guidance.");
+            }
+
+            if (callScript.DiscoveryQuestionGuidance.Count == 0 || callScript.TalkingPointGuidance.Count == 0)
+            {
+                errors.Add($"Call script '{callScript.SourceId}' has no discovery-question or talking-point guidance.");
+            }
+        }
+
         if (errors.Count > 0)
         {
             throw new InvalidOperationException("Knowledge dataset failed validation:" + Environment.NewLine + string.Join(Environment.NewLine, errors));
@@ -117,6 +162,24 @@ internal static class KnowledgeSourceLoader
         template.TemplateId,
         template.Language,
         template.Version);
+
+    /// <summary>
+    /// P0-10. The scriptId is carried in the metadata's TemplateId slot deliberately: it is the
+    /// existing "non-product identifier" field, so call scripts index into the current Chroma
+    /// metadata schema unchanged. Adding a separate scriptId column would be a vector-store schema
+    /// change requiring a full re-index, which this checkpoint explicitly avoids (plan D8).
+    /// </summary>
+    private static KnowledgeSourceDocument RenderCallScript(CallScriptKnowledgeDto callScript) => new(
+        callScript.SourceId,
+        KnowledgeDocumentType.CallScript,
+        $"{callScript.Intent}\n{callScript.Tone}\n{callScript.OpeningGuidance}\n" +
+        $"{string.Join("\n", callScript.DiscoveryQuestionGuidance)}\n" +
+        $"{string.Join("\n", callScript.TalkingPointGuidance)}\n" +
+        $"{string.Join("\n", callScript.ObjectionHandlingGuidance)}\n{callScript.ClosingGuidance}",
+        null,
+        callScript.ScriptId,
+        callScript.Language,
+        callScript.Version);
 
     private static T ReadJsonFile<T>(string path)
     {

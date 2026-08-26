@@ -147,4 +147,56 @@ public class KnowledgeToolsTests
         Assert.NotNull(retriever.LastQuery);
         Assert.Equal([KnowledgeDocumentType.Product, KnowledgeDocumentType.EmailTemplate], retriever.LastQuery!.DocumentTypes);
     }
+
+    /// <summary>
+    /// Plan D7, the regression P0-10 introduced the risk of. Before call scripts shared the Chroma
+    /// collection, omitting documentTypes meant "no filter", which happened to equal
+    /// [Product, EmailTemplate]. It no longer does. The default is now stated explicitly, so an
+    /// unfiltered search cannot start returning call scripts and disturbing this tool's verified
+    /// results — including the canonical PRD-SAV-006M ranking the acceptance evidence rests on.
+    /// </summary>
+    [Fact]
+    public async Task SearchProductKnowledge_DocumentTypesOmitted_FiltersToProductAndEmailTemplateExplicitly()
+    {
+        var retriever = new FakeKnowledgeRetriever { SearchResult = KnowledgeSearchResult.NoRelevantEvidence };
+        var tools = CreateTools(retriever);
+
+        await tools.SearchProductKnowledge("query", cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.NotNull(retriever.LastQuery);
+        Assert.NotNull(retriever.LastQuery!.DocumentTypes);
+        Assert.Equal([KnowledgeDocumentType.Product, KnowledgeDocumentType.EmailTemplate], retriever.LastQuery.DocumentTypes);
+        Assert.DoesNotContain(KnowledgeDocumentType.CallScript, retriever.LastQuery.DocumentTypes!);
+    }
+
+    [Fact]
+    public async Task SearchProductKnowledge_EmptyDocumentTypesList_AlsoFiltersExplicitly()
+    {
+        var retriever = new FakeKnowledgeRetriever { SearchResult = KnowledgeSearchResult.NoRelevantEvidence };
+        var tools = CreateTools(retriever);
+
+        await tools.SearchProductKnowledge("query", documentTypes: [], cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal([KnowledgeDocumentType.Product, KnowledgeDocumentType.EmailTemplate], retriever.LastQuery!.DocumentTypes);
+    }
+
+    /// <summary>
+    /// call_script is a real KnowledgeDocumentType, but it is outside this tool's contract
+    /// (docs/07 §6). Requesting it explicitly is an INVALID_ARGUMENT, not a widening of the filter —
+    /// call scripts are reachable only through generate_call_script's own retrieval.
+    /// </summary>
+    [Fact]
+    public async Task SearchProductKnowledge_CallScriptDocumentType_IsRejected()
+    {
+        var retriever = new FakeKnowledgeRetriever { SearchResult = KnowledgeSearchResult.NoRelevantEvidence };
+        var tools = CreateTools(retriever);
+
+        var result = await tools.SearchProductKnowledge(
+            "query", documentTypes: ["call_script"], cancellationToken: TestContext.Current.CancellationToken);
+
+        var root = JsonDocument.Parse(result).RootElement;
+        Assert.Equal(McpToolStatus.Error, root.GetProperty("status").GetString());
+        Assert.Equal(McpToolErrorCode.InvalidArgument, root.GetProperty("error").GetProperty("code").GetString());
+        Assert.Null(retriever.LastQuery);
+    }
 }

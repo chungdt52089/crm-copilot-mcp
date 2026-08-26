@@ -205,12 +205,19 @@ public class ChatEndpointTests
 
         var sentTools = harness.ChatClient.CapturedConfigs[0].Tools;
         var declarations = Assert.Single(sentTools!).FunctionDeclarations!;
-        Assert.Equal(4, declarations.Count);
+
+        // P0-10 raised the approved set from 4 to 7. The point of the test is unchanged: the extra
+        // tool the harness deliberately registers on the MCP server is absent, because Gemini only
+        // ever sees the intersection of ApprovedMcpToolNames.All and tools/list.
+        Assert.Equal(7, declarations.Count);
         Assert.DoesNotContain(declarations, d => d.Name == "delete_customer");
         Assert.Contains(declarations, d => d.Name == "get_customer");
         Assert.Contains(declarations, d => d.Name == "get_interactions");
         Assert.Contains(declarations, d => d.Name == "search_product_knowledge");
         Assert.Contains(declarations, d => d.Name == "generate_email");
+        Assert.Contains(declarations, d => d.Name == "get_opportunities");
+        Assert.Contains(declarations, d => d.Name == "get_campaigns");
+        Assert.Contains(declarations, d => d.Name == "generate_call_script");
     }
 
     // --- 7. Hallucinated unknown tool name — rejected before any MCP call ---
@@ -552,7 +559,9 @@ public class ChatEndpointTests
     private static RawEmailDraftModel ValidRawDraft(string subject = "Thông tin gửi tiết kiệm 6 tháng") => new(
         RawEmailDraftModel.StatusOk,
         subject,
-        "Kính gửi {{CUSTOMER_NAME}}, đây là thông tin tham khảo về gửi tiết kiệm 6 tháng.",
+        "Kính gửi {{CUSTOMER_NAME}},\n\n"
+            + "Đây là thông tin tham khảo về gửi tiết kiệm 6 tháng.\n\n"
+            + "Mong Anh/Chị phản hồi thời gian phù hợp.\n\nTrân trọng,",
         "PRD-SAV-006M",
         ["kb:product:PRD-SAV-006M"],
         true,

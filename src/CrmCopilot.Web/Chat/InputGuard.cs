@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using CrmCopilot.Contracts.Chat;
+using CrmCopilot.Contracts.Crm;
 using CrmCopilot.Contracts.Pii;
 
 namespace CrmCopilot.Web.Chat;
@@ -71,6 +72,18 @@ internal static class InputGuard
             PiiPatterns.DigitRun.IsMatch(message) || LooksLikeAddress(message))
         {
             return InputGuardResult.Reject(ChatTurnErrorCode.PiiRejected, PiiRejectedMessage);
+        }
+
+        // P0-10, browser-verified. A malformed customer id must die here, before Gemini sees it.
+        // Downstream every path is wrong in a different way: the model silently substitutes the
+        // session's customer (looks like success, wrong customer), or forwards the typo as a lookup
+        // that answers NOT_FOUND (implies the id was well-formed and merely absent), or treats it as
+        // a name query which then collides with the customerId the Host injects from session state
+        // (surfaces an internal validator message). Checked before the valid-id branch so a message
+        // mixing a good and a bad id is refused rather than half-honoured.
+        if (CustomerIdFormat.TryFindMalformedToken(message, out _))
+        {
+            return InputGuardResult.Reject(ChatTurnErrorCode.CustomerIdInvalid, CustomerIdFormat.InvalidMessage);
         }
 
         var containsValidCustomerId = CustomerIdPattern.IsMatch(message);

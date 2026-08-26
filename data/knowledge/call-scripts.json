@@ -1,0 +1,178 @@
+[
+  {
+    "sourceId": "kb:call-script:CS-CALL-SAVINGS-FOLLOWUP-01",
+    "scriptId": "CS-CALL-SAVINGS-FOLLOWUP-01",
+    "intent": "SavingsFollowUp",
+    "tone": "ProfessionalWarm",
+    "openingGuidance": "Chào hỏi ngắn gọn, xác nhận đúng người, nhắc lại lần trao đổi gần nhất về nhu cầu gửi tiết kiệm và xin phép trao đổi vài phút.",
+    "discoveryQuestionGuidance": [
+      "Hỏi khoảng thời gian khách hàng dự định gửi và mức độ ưu tiên an toàn vốn",
+      "Hỏi khách hàng đã tham khảo kỳ hạn nào và còn băn khoăn điều gì",
+      "Hỏi khách hàng muốn nhận thông tin qua kênh nào và thời điểm nào thuận tiện"
+    ],
+    "talkingPointGuidance": [
+      "Chỉ nêu đặc điểm sản phẩm có trong product source, không tự suy diễn lãi suất hay ưu đãi",
+      "Kết nối đặc điểm sản phẩm với đúng nhu cầu khách hàng đã nêu ở lần trao đổi trước",
+      "Nêu rõ bước tiếp theo cụ thể mà khách hàng cần làm"
+    ],
+    "objectionHandlingGuidance": [
+      "Nếu khách hàng nói cần thêm thời gian cân nhắc: ghi nhận, đề xuất mốc liên hệ lại cụ thể",
+      "Nếu khách hàng hỏi con số chưa có trong nguồn: không phỏng đoán, hẹn gửi thông tin chính thức",
+      "Nếu khách hàng đang so sánh với nơi khác: tập trung vào đặc điểm có căn cứ, không nói xấu đối thủ"
+    ],
+    "closingGuidance": "Tóm tắt lại điều đã thống nhất, xác nhận bước tiếp theo và thời điểm liên hệ lại, cảm ơn khách hàng.",
+    "language": "vi",
+    "synthetic": true,
+    "version": "1.0"
+  },
+  {
+    "sourceId": "kb:call-script:CS-CALL-MATURITY-RENEWAL-01",
+    "scriptId": "CS-CALL-MATURITY-RENEWAL-01",
+    "intent": "MaturityRenewal",
+    "tone": "ProfessionalWarm",
+    "openingGuidance": "Chào hỏi, nhắc khoản tiền gửi sắp đến hạn và xin phép trao đổi về phương án tái tục.",
+    "discoveryQuestionGuidance": [
+      "Hỏi khách hàng dự định tiếp tục gửi hay cần dùng vốn trong thời gian tới",
+      "Hỏi kỳ hạn nào phù hợp với kế hoạch tài chính hiện tại của khách hàng",
+      "Hỏi khách hàng có nhu cầu thay đổi hình thức nhận lãi hay không"
+    ],
+    "talkingPointGuidance": [
+      "Nêu các lựa chọn tái tục có trong product source",
+      "Nhấn mạnh việc chủ động trước ngày đến hạn để tránh gián đoạn",
+      "Chỉ nêu điều kiện và ràng buộc có trong nguồn"
+    ],
+    "objectionHandlingGuidance": [
+      "Nếu khách hàng muốn rút toàn bộ: ghi nhận, hỏi lý do và không gây áp lực",
+      "Nếu khách hàng chưa quyết định: đề xuất mốc liên hệ lại trước ngày đến hạn"
+    ],
+    "closingGuidance": "Xác nhận phương án khách hàng chọn hoặc mốc liên hệ lại, nhắc lại ngày đến hạn, cảm ơn khách hàng.",
+    "language": "vi",
+    "synthetic": true,
+    "version": "1.0"
+  },
+  {
+    "sourceId": "kb:call-script:CS-CALL-CARD-UPSELL-01",
+    "scriptId": "CS-CALL-CARD-UPSELL-01",
+    "intent": "CardUpsell",
+    "tone": "Professional",
+    "openingGuidance": "Chào hỏi, nhắc lại việc khách hàng đang sử dụng thẻ và xin phép trao đổi ngắn về nhu cầu chi tiêu.",
+    "discoveryQuestionGuidance": [
+      "Hỏi nhóm chi tiêu chính hằng tháng của khách hàng",
+      "Hỏi khách hàng đã gặp hạn chế nào với hạn mức hiện tại chưa",
+      "Hỏi khách hàng quan tâm tới quyền lợi nào nhất"
+    ],
+    "talkingPointGuidance": [
+      "Chỉ nêu quyền lợi thẻ có trong product source",
+      "Không cam kết hạn mức hoặc tỷ lệ hoàn tiền không có trong nguồn",
+      "Nêu rõ hồ sơ hoặc bước xét duyệt cần thiết nếu nguồn có đề cập"
+    ],
+    "objectionHandlingGuidance": [
+      "Nếu khách hàng lo ngại phí: chỉ dẫn chiếu đúng thông tin phí có trong nguồn",
+      "Nếu khách hàng nói chưa cần: ghi nhận và đề nghị gửi thông tin tham khảo"
+    ],
+    "closingGuidance": "Chốt bước tiếp theo rõ ràng, xác nhận kênh gửi thông tin, cảm ơn khách hàng.",
+    "language": "vi",
+    "synthetic": true,
+    "version": "1.0"
+  },
+  {
+    "sourceId": "kb:call-script:CS-CALL-LOAN-REMINDER-01",
+    "scriptId": "CS-CALL-LOAN-REMINDER-01",
+    "intent": "LoanPaymentReminder",
+    "tone": "Professional",
+    "openingGuidance": "Chào hỏi lịch sự, nêu rõ mục đích là nhắc lịch thanh toán sắp tới, giữ thái độ hỗ trợ chứ không hối thúc.",
+    "discoveryQuestionGuidance": [
+      "Hỏi khách hàng đã nắm được lịch thanh toán sắp tới chưa",
+      "Hỏi khách hàng có gặp khó khăn gì trong việc thu xếp không",
+      "Hỏi khách hàng muốn nhận nhắc lịch qua kênh nào"
+    ],
+    "talkingPointGuidance": [
+      "Nêu lại thông tin kỳ thanh toán theo đúng dữ liệu có trong nguồn",
+      "Không tự đưa ra số tiền, lãi phạt hay điều kiện không có trong nguồn",
+      "Nêu các kênh thanh toán được hỗ trợ nếu nguồn có đề cập"
+    ],
+    "objectionHandlingGuidance": [
+      "Nếu khách hàng gặp khó khăn tài chính: ghi nhận, không hứa hẹn giải pháp ngoài thẩm quyền, chuyển tiếp đúng bộ phận",
+      "Nếu khách hàng cho biết đã thanh toán: ghi nhận và hẹn kiểm tra lại"
+    ],
+    "closingGuidance": "Xác nhận thông tin đã trao đổi, cảm ơn khách hàng và nêu đầu mối liên hệ khi cần hỗ trợ.",
+    "language": "vi",
+    "synthetic": true,
+    "version": "1.0"
+  },
+  {
+    "sourceId": "kb:call-script:CS-CALL-INSURANCE-INTRO-01",
+    "scriptId": "CS-CALL-INSURANCE-INTRO-01",
+    "intent": "InsuranceIntroduction",
+    "tone": "ProfessionalWarm",
+    "openingGuidance": "Chào hỏi, xin phép trao đổi ngắn về giải pháp bảo vệ tài chính đi kèm tài khoản hiện có.",
+    "discoveryQuestionGuidance": [
+      "Hỏi khách hàng đã có giải pháp bảo vệ tài chính nào chưa",
+      "Hỏi mối quan tâm chính của khách hàng khi nghĩ tới bảo vệ tài chính gia đình",
+      "Hỏi khách hàng muốn tìm hiểu ở mức thông tin nào"
+    ],
+    "talkingPointGuidance": [
+      "Chỉ nêu phạm vi và điều kiện có trong product source",
+      "Không cam kết chi trả, quyền lợi hay loại trừ không có trong nguồn",
+      "Nhấn mạnh đây là thông tin tham khảo, quyết định thuộc về khách hàng"
+    ],
+    "objectionHandlingGuidance": [
+      "Nếu khách hàng nói chưa quan tâm: ghi nhận, không thuyết phục quá mức",
+      "Nếu khách hàng hỏi chi tiết quyền lợi: chỉ trả lời trong phạm vi nguồn, phần còn lại hẹn gửi tài liệu chính thức"
+    ],
+    "closingGuidance": "Tóm tắt thông tin đã trao đổi, xác nhận khách hàng có muốn nhận tài liệu tham khảo không, cảm ơn khách hàng.",
+    "language": "vi",
+    "synthetic": true,
+    "version": "1.0"
+  },
+  {
+    "sourceId": "kb:call-script:CS-CALL-WINBACK-INACTIVE-01",
+    "scriptId": "CS-CALL-WINBACK-INACTIVE-01",
+    "intent": "InactiveWinBack",
+    "tone": "ProfessionalWarm",
+    "openingGuidance": "Chào hỏi, nhắc lại mối quan hệ đã có, nêu rõ mục đích là tìm hiểu nhu cầu hiện tại chứ không chào bán ngay.",
+    "discoveryQuestionGuidance": [
+      "Hỏi lý do khách hàng ít sử dụng dịch vụ trong thời gian qua",
+      "Hỏi nhu cầu tài chính hiện tại của khách hàng đã thay đổi thế nào",
+      "Hỏi khách hàng mong muốn được hỗ trợ điều gì"
+    ],
+    "talkingPointGuidance": [
+      "Ghi nhận phản hồi của khách hàng trước khi giới thiệu bất kỳ sản phẩm nào",
+      "Chỉ giới thiệu sản phẩm khớp với nhu cầu khách hàng vừa nêu và có trong nguồn",
+      "Không nhắc lại các vấn đề cũ nếu khách hàng không đề cập"
+    ],
+    "objectionHandlingGuidance": [
+      "Nếu khách hàng phàn nàn về trải nghiệm cũ: lắng nghe, ghi nhận, không biện minh",
+      "Nếu khách hàng không muốn tiếp tục: cảm ơn và tôn trọng quyết định"
+    ],
+    "closingGuidance": "Cảm ơn khách hàng đã dành thời gian, xác nhận bước tiếp theo nếu có, để lại đầu mối liên hệ.",
+    "language": "vi",
+    "synthetic": true,
+    "version": "1.0"
+  },
+  {
+    "sourceId": "kb:call-script:CS-CALL-PERIODIC-CARE-01",
+    "scriptId": "CS-CALL-PERIODIC-CARE-01",
+    "intent": "PeriodicCare",
+    "tone": "ProfessionalWarm",
+    "openingGuidance": "Chào hỏi thân thiện, nêu rõ đây là cuộc gọi chăm sóc định kỳ, không nhằm chào bán, và xin phép trao đổi vài phút.",
+    "discoveryQuestionGuidance": [
+      "Hỏi khách hàng có hài lòng với các dịch vụ đang sử dụng không",
+      "Hỏi nhu cầu tài chính của khách hàng trong thời gian tới có gì thay đổi",
+      "Hỏi khách hàng có cần hỗ trợ gì từ ngân hàng không"
+    ],
+    "talkingPointGuidance": [
+      "Ưu tiên lắng nghe và ghi nhận, không giới thiệu sản phẩm khi khách hàng chưa nêu nhu cầu",
+      "Nếu khách hàng nêu nhu cầu, chỉ giới thiệu sản phẩm có trong nguồn và khớp nhu cầu đó",
+      "Cập nhật thông tin liên hệ ưu tiên của khách hàng nếu khách hàng đồng ý"
+    ],
+    "objectionHandlingGuidance": [
+      "Nếu khách hàng đang bận: xin lỗi và đề nghị hẹn lại thời điểm thuận tiện",
+      "Nếu khách hàng không có nhu cầu gì: cảm ơn và kết thúc ngắn gọn, không kéo dài"
+    ],
+    "closingGuidance": "Cảm ơn khách hàng, xác nhận đầu mối liên hệ khi cần và nêu mốc chăm sóc tiếp theo nếu phù hợp.",
+    "language": "vi",
+    "synthetic": true,
+    "version": "1.0"
+  }
+]

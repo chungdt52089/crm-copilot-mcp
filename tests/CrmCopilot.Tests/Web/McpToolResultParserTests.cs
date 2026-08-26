@@ -140,4 +140,82 @@ public class McpToolResultParserTests
         Assert.True(draft.RequiresHumanApproval);
         Assert.Contains("name", draft.PiiMaskSummary.MaskedFieldTypes);
     }
+
+    // --- P0-10 extractors ---------------------------------------------------------------------
+
+    [Fact]
+    public void ExtractOpportunities_RoundTripsOpportunityShape()
+    {
+        using var document = JsonDocument.Parse("""
+            {"opportunities":[{"id":"OPP-0002","customerId":"CUS-0001","productCode":"PRD-SAV-006M",
+             "stage":"Proposal","amountVnd":250000000,"expectedCloseDateUtc":"2026-09-10T09:00:00Z",
+             "status":"Open","synthetic":true}]}
+            """);
+
+        var opportunities = McpToolResultParser.ExtractOpportunities(document.RootElement.Clone());
+
+        var opportunity = Assert.Single(opportunities!);
+        Assert.Equal("OPP-0002", opportunity.Id);
+        Assert.Equal("PRD-SAV-006M", opportunity.ProductCode);
+        Assert.Equal("Open", opportunity.Status);
+        // The exact figure legitimately reaches the Host/UI over the trusted local path; only the
+        // Gemini prompt gets a band instead (plan D12).
+        Assert.Equal(250_000_000, opportunity.AmountVnd);
+    }
+
+    [Fact]
+    public void ExtractCampaigns_RoundTripsCampaignShapeIncludingEligibility()
+    {
+        using var document = JsonDocument.Parse("""
+            {"campaigns":[{"id":"CMP-0001","name":"Ưu đãi tiền gửi","objective":"Giới thiệu",
+             "targetSegment":"Priority","productCodes":["PRD-SAV-006M"],
+             "eligibleCustomerIds":["CUS-0001","CUS-0002"],
+             "startDateUtc":"2026-07-26T09:00:00Z","endDateUtc":"2026-09-29T09:00:00Z",
+             "status":"Active","synthetic":true}]}
+            """);
+
+        var campaigns = McpToolResultParser.ExtractCampaigns(document.RootElement.Clone());
+
+        var campaign = Assert.Single(campaigns!);
+        Assert.Equal("CMP-0001", campaign.Id);
+        Assert.Contains("CUS-0001", campaign.EligibleCustomerIds);
+        Assert.Contains("PRD-SAV-006M", campaign.ProductCodes);
+    }
+
+    [Fact]
+    public void ExtractCallScript_RoundTripsAllFiveSectionsAndProvenanceFields()
+    {
+        using var document = JsonDocument.Parse("""
+            {"draft":{"opening":"Kính chào","discoveryQuestions":["Q1","Q2"],
+             "talkingPoints":["T1"],
+             "objectionHandling":[{"objection":"O1","response":"R1"}],
+             "closing":"Cảm ơn","suggestedProductCode":"PRD-SAV-006M",
+             "selectedOpportunityId":"OPP-0002","resolvedObjective":"Trao đổi",
+             "objectiveSource":"opportunity",
+             "sourceIds":["crm:opportunity:OPP-0002","kb:call-script:CS-CALL-SAVINGS-FOLLOWUP-01"],
+             "requiresHumanApproval":true,"warnings":["OBJECTIVE_INFERRED"],
+             "piiMaskSummary":{"maskedFieldTypes":["name"]}}}
+            """);
+
+        var draft = McpToolResultParser.ExtractCallScript(document.RootElement.Clone());
+
+        Assert.NotNull(draft);
+        Assert.Equal("Kính chào", draft!.Opening);
+        Assert.Equal(2, draft.DiscoveryQuestions.Count);
+        Assert.Single(draft.TalkingPoints);
+        Assert.Equal("O1", Assert.Single(draft.ObjectionHandling).Objection);
+        Assert.Equal("Cảm ơn", draft.Closing);
+        Assert.Equal("OPP-0002", draft.SelectedOpportunityId);
+        Assert.Equal("opportunity", draft.ObjectiveSource);
+        Assert.Contains("OBJECTIVE_INFERRED", draft.Warnings);
+        Assert.True(draft.RequiresHumanApproval);
+    }
+
+    [Fact]
+    public void ExtractCallScript_MalformedData_ReturnsNullRatherThanThrowing()
+    {
+        using var document = JsonDocument.Parse("""{"unexpected":true}""");
+
+        Assert.Null(McpToolResultParser.ExtractCallScript(document.RootElement.Clone()));
+    }
 }

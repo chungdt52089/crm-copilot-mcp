@@ -12,9 +12,34 @@ internal sealed class FakeCrmGateway : ICrmGateway
     public Exception? ThrowOnFindCustomer { get; set; }
     public IReadOnlyList<InteractionDto>? InteractionsResult { get; set; }
     public Exception? ThrowOnGetInteractions { get; set; }
+    public IReadOnlyList<OpportunityDto>? OpportunitiesResult { get; set; }
+    public Exception? ThrowOnGetOpportunities { get; set; }
+    public IReadOnlyList<CampaignDto>? CampaignsResult { get; set; }
+    public Exception? ThrowOnGetCampaigns { get; set; }
     public CustomerLookupQuery? LastLookupQuery { get; private set; }
     public string? LastInteractionsCustomerId { get; private set; }
     public int? LastInteractionsLimit { get; private set; }
+    public string? LastOpportunitiesCustomerId { get; private set; }
+    public string? LastOpportunitiesStatus { get; private set; }
+    public int? LastOpportunitiesLimit { get; private set; }
+    public string? LastCampaignsCustomerId { get; private set; }
+    public int? LastCampaignsLimit { get; private set; }
+
+    /// <summary>
+    /// Clears the captured Last* values so a multi-turn test can assert "no further call happened"
+    /// after a setup turn that legitimately made one.
+    /// </summary>
+    public void ResetCallTracking()
+    {
+        LastLookupQuery = null;
+        LastInteractionsCustomerId = null;
+        LastInteractionsLimit = null;
+        LastOpportunitiesCustomerId = null;
+        LastOpportunitiesStatus = null;
+        LastOpportunitiesLimit = null;
+        LastCampaignsCustomerId = null;
+        LastCampaignsLimit = null;
+    }
 
     public Task<CustomerLookupResult> FindCustomerAsync(CustomerLookupQuery query, CancellationToken cancellationToken)
     {
@@ -39,5 +64,33 @@ internal sealed class FakeCrmGateway : ICrmGateway
         }
 
         return Task.FromResult(InteractionsResult ?? []);
+    }
+
+    public Task<IReadOnlyList<OpportunityDto>> GetOpportunitiesAsync(
+        string customerId, string? status, int limit, CancellationToken cancellationToken)
+    {
+        LastOpportunitiesCustomerId = customerId;
+        LastOpportunitiesStatus = status;
+        LastOpportunitiesLimit = limit;
+
+        if (ThrowOnGetOpportunities is { } exception)
+        {
+            throw exception;
+        }
+
+        return Task.FromResult(OpportunitiesResult ?? []);
+    }
+
+    public Task<IReadOnlyList<CampaignDto>> GetCampaignsAsync(string customerId, int limit, CancellationToken cancellationToken)
+    {
+        LastCampaignsCustomerId = customerId;
+        LastCampaignsLimit = limit;
+
+        if (ThrowOnGetCampaigns is { } exception)
+        {
+            throw exception;
+        }
+
+        return Task.FromResult(CampaignsResult ?? []);
     }
 }

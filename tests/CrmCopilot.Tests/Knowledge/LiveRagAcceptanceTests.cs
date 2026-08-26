@@ -3,6 +3,7 @@ using CrmCopilot.McpServer.Knowledge;
 using CrmCopilot.McpServer.Knowledge.Ingestion;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace CrmCopilot.Tests.Knowledge;
 
@@ -34,6 +35,15 @@ public class LiveRagAcceptanceTests
         services.PostConfigure<ChromaOptions>(options => options.CollectionName = LiveTestCollectionName);
         using var provider = services.BuildServiceProvider();
 
+        // Isolation guard, asserted BEFORE anything is written. LiveTestCollectionName is a
+        // compile-time constant, but PostConfigure silently doing nothing would send every upsert
+        // below into the default dev collection instead. Proving the resolved name here is what
+        // makes "this test never touches crm-copilot-knowledge" a checked fact rather than an
+        // assumption.
+        var resolvedCollection = provider.GetRequiredService<IOptions<ChromaOptions>>().Value.CollectionName;
+        Assert.Equal(LiveTestCollectionName, resolvedCollection);
+        Assert.NotEqual(ChromaOptions.DefaultCollectionName, resolvedCollection);
+
         var vectorStore = provider.GetRequiredService<IVectorStore>();
         var heartbeat = await vectorStore.HeartbeatAsync(TestContext.Current.CancellationToken);
         Assert.True(heartbeat, "Chroma heartbeat failed — is the container running and CHROMA_BASE_URL correct?");
@@ -41,16 +51,43 @@ public class LiveRagAcceptanceTests
         var documents = KnowledgeSourceLoader.LoadFromAppBaseDirectory();
         var ingestionService = provider.GetRequiredService<KnowledgeIngestionService>();
 
-        var firstRun = await ingestionService.IngestAsync(documents, TestContext.Current.CancellationToken);
-        Assert.Equal(14, firstRun.TotalDocuments);
-        Assert.Equal(14, await vectorStore.CountAsync(TestContext.Current.CancellationToken));
+        // The expected count is derived from the corpus, not hard-coded: the corpus legitimately
+        // grows (P0-03 shipped 14 documents; P0-10 added 7 call-script playbooks for 21). A literal
+        // would have to be edited on every such change and says nothing about correctness.
+        //
+        // Deriving it does mean documents.Count could itself be wrong, so the two properties a
+        // literal used to imply are now asserted directly instead of assumed:
+        //   - the corpus is non-trivial (a loader returning nothing must not pass vacuously);
+        //   - every source id is unique (a duplicated document must not inflate the count).
+        Assert.NotEmpty(documents);
+        Assert.Equal(documents.Count, documents.Select(document => document.SourceId).Distinct(StringComparer.Ordinal).Count());
 
-        // Second run over unchanged source data: zero new embedding calls, still 14 records —
-        // the literal idempotency proof (plan §16/item 8), not just "no duplicate rows".
+        // All three document types must be present — catches a loader that silently drops a file,
+        // which a bare count could not distinguish from a smaller corpus.
+        Assert.Contains(documents, document => document.DocumentType == KnowledgeDocumentType.Product);
+        Assert.Contains(documents, document => document.DocumentType == KnowledgeDocumentType.EmailTemplate);
+        Assert.Contains(documents, document => document.DocumentType == KnowledgeDocumentType.CallScript);
+
+        var expectedRecordCount = documents.Count;
+
+        var firstRun = await ingestionService.IngestAsync(documents, TestContext.Current.CancellationToken);
+        Assert.Equal(expectedRecordCount, firstRun.TotalDocuments);
+
+        var countAfterFirstRun = await vectorStore.CountAsync(TestContext.Current.CancellationToken);
+        Assert.True(
+            countAfterFirstRun == expectedRecordCount,
+            $"Expected {expectedRecordCount} vectors in the isolated collection '{LiveTestCollectionName}' but found " +
+            $"{countAfterFirstRun}. A higher count means vectors from an earlier, larger corpus are still present — " +
+            $"upsert is by stable id and never deletes. Drop ONLY the isolated collection " +
+            $"'{LiveTestCollectionName}' and re-run; never touch '{ChromaOptions.DefaultCollectionName}'.");
+
+        // Second run over unchanged source data: zero new embedding calls, same record count — the
+        // literal idempotency proof (plan §16/item 8), not just "no duplicate rows".
         var secondRun = await ingestionService.IngestAsync(documents, TestContext.Current.CancellationToken);
         Assert.Equal(0, secondRun.Embedded);
-        Assert.Equal(14, secondRun.Skipped);
-        Assert.Equal(14, await vectorStore.CountAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(expectedRecordCount, secondRun.Skipped);
+        Assert.Equal(expectedRecordCount, secondRun.TotalDocuments);
+        Assert.Equal(countAfterFirstRun, await vectorStore.CountAsync(TestContext.Current.CancellationToken));
 
         var retriever = provider.GetRequiredService<IKnowledgeRetriever>();
         var result = await retriever.SearchAsync(

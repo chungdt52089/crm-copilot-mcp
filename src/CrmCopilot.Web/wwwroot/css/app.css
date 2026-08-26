@@ -202,3 +202,32 @@ textarea:disabled {
 [hidden] {
   display: none !important;
 }
+
+/* P0-10 — call-script panel. Reuses .field/.draft-body/.approval-label/.chip from the
+   email-draft panel so the two generator outputs read as one family. */
+.badge {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #3730a3;
+  background: #e0e7ff;
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  margin-bottom: 0.4rem;
+}
+
+#call-script-panel h3 {
+  font-size: 0.9rem;
+  margin: 0.7rem 0 0.2rem;
+  color: #374151;
+}
+
+#call-script-panel ul {
+  margin: 0.2rem 0;
+  padding-left: 1.2rem;
+  font-size: 0.9rem;
+}
+
+#call-script-panel li {
+  padding: 0.1rem 0;
+}
