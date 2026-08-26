@@ -22,6 +22,26 @@ Trước demo 15 phút:
 - Canonical customer/product/template tồn tại.
 - Chạy smoke test T01, T05, T07.
 - Mở sẵn tool trace panel nhưng thu gọn.
+
+Lệnh preflight thật (cả 4 dòng phải trả `200`; bất kỳ dòng nào khác `200` thì **dừng**, không demo):
+
+```powershell
+foreach ($u in @(
+  "http://localhost:5100/health",              # MockCrmApi
+  "http://localhost:5090/health",              # McpServer
+  "http://localhost:5081/health",              # Web
+  "http://localhost:8000/api/v2/heartbeat")) { # Chroma
+  $r = Invoke-WebRequest -Uri $u -TimeoutSec 5 -UseBasicParsing
+  Write-Output "$u -> $($r.StatusCode)"
+}
+```
+
+Bộ 8 scenario tự động (lớp deterministic) chạy bằng:
+
+```powershell
+dotnet test tests/CrmCopilot.Tests/CrmCopilot.Tests.csproj --no-build --no-restore `
+  --filter-class "CrmCopilot.Tests.Acceptance.AcceptanceScenarioTests"
+```
 - Tắt notification và ẩn terminal chứa environment variables.
 - Có fallback screenshot/video/log đã sanitized nếu network Gemini lỗi.
 
@@ -102,11 +122,15 @@ Hoặc dùng tên trùng để cho thấy Agent yêu cầu chọn ID thay vì đ
 
 Đúng:
 
-> Nhóm tự xây dựng 8 scenario MVP bám vào luồng demo; hệ thống hiện đạt X/8. Đây là chỉ số nội bộ để kiểm soát chất lượng, chưa phải benchmark chính thức của Bank A.
+> Nhóm tự xây dựng 8 scenario MVP bám vào luồng demo; hệ thống hiện đạt 8/8 ở bộ kiểm thử tự động chạy offline. Đây là chỉ số nội bộ để kiểm soát chất lượng, chưa phải benchmark chính thức của Bank A.
 
 Không nói:
 
 > Hệ thống đạt 87,5% accuracy trong ngân hàng thực tế.
+
+Số liệu đầy đủ và cách đọc nằm ở `docs/14_ACCEPTANCE_SCENARIO_REPORT.md`. Khi nói con số, luôn nói kèm nó được đo ở lớp evidence nào — bộ tự động offline (Gemini/CRM là fake, chứng minh contract và luồng), live gate (Gemini/Chroma thật, chứng minh grounding), hay demo trên trình duyệt. Không gộp ba lớp thành một con số duy nhất, và không dùng kết quả offline để nói thay cho lần chạy thật.
+
+Hai scenario tra cứu theo tên (T02/T03) được đo ở tầng MCP tool chứ không qua khung chat, vì `InputGuard` cố ý từ chối tên đầy đủ trong chat để chặn PII. Nếu bị hỏi, đây là câu trả lời trung thực — không nên trình bày như thể chat cũng tra cứu được theo tên.
 
 ## 6. Cách nói về bảo mật
 
