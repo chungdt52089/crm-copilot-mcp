@@ -1,420 +1,713 @@
-# CRM Copilot MVP — Bộ tài liệu điều hành dự án
+# CRM Copilot
 
-Trạng thái: **Planning baseline đã được phê duyệt**  
-Ngày chốt baseline: **2026-08-18**  
-Mục tiêu thời gian: **MVP demo được trong 7–9 ngày**
+**AI CRM Co-Pilot tiếng Việt cho Relationship Manager (RM) ngân hàng.**
 
-## 1. Mục tiêu
+RM gõ một câu tiếng Việt bình thường — *"Tìm hồ sơ khách hàng CUS-0001"*, *"Khách hàng này có cơ hội
+bán nào?"*, *"Soạn email follow-up về gói tiết kiệm 6 tháng"*. Hệ thống tự chọn đúng công cụ CRM và
+gọi chúng qua **MCP (Model Context Protocol)**, truy xuất kiến thức sản phẩm bằng **RAG**, rồi trả về
+kết quả có cấu trúc kèm **nguồn trích dẫn** và **dấu vết từng lần gọi tool**.
 
-Xây dựng AI CRM Co-Pilot tiếng Việt cho Relationship Manager (RM), chứng minh rõ:
+Email và kịch bản gọi điện chỉ là **bản nháp**: hệ thống không gửi email, không thực hiện cuộc gọi, và
+luôn gắn cờ `requiresHumanApproval = true` để RM duyệt.
 
-1. **MCP thật** để AI Host gọi các công cụ CRM qua một MCP Server.
-2. **RAG thật** trên product knowledge và email templates lưu trong Chroma.
-3. **Hội thoại nhiều lượt** với trạng thái khách hàng đang được đề cập.
-4. **Email draft có nguồn** và không gửi PII thô tới Gemini.
+---
 
-P0 chỉ cần chạy ổn định luồng:
+## 1. Bối cảnh — RM đang mất thời gian vào đâu
 
-> Tìm khách hàng → xem tương tác → hỏi tiếp “khách hàng này” → truy xuất knowledge bằng RAG → tạo email draft → hiển thị nguồn và tool trace.
+Một Relationship Manager (RM) ngân hàng bán lẻ phụ trách **50–80 khách hàng mỗi ngày**. Phần lớn thời
+gian của họ không nằm ở tư vấn hay bán hàng, mà ở thao tác tra cứu và soạn thảo lặp đi lặp lại:
+khoảng **2–3 giờ mỗi ca**, tương đương **25–37%** thời gian làm việc.
 
-## 2. Quyết định đã khóa
+Để chuẩn bị cho **một** cuộc gọi hay **một** email, RM phải tự đi hết chuỗi thao tác này:
 
-| Hạng mục | Quyết định P0 |
+| Bước thủ công | RM phải tự làm gì |
 | --- | --- |
-| Backend/UI | .NET 10, ASP.NET Core Minimal API, Razor Pages + JavaScript tối thiểu |
-| MCP | Official C# SDK; một MCP Server; Streamable HTTP |
-| CRM | Dataset JSON tổng hợp + Mock CRM API; adapter qua `ICrmGateway` |
-| MCP tools bắt buộc | `get_customer`, `get_interactions`, `search_product_knowledge`, `generate_email` |
-| LLM | `gemini-3.5-flash-lite` |
-| Embedding | `gemini-embedding-001`, 768 chiều, L2 normalize |
-| Vector store | Chroma chạy client/server; .NET gọi HTTP |
-| Conversation state | In-memory trong AI Host, theo `sessionId`; MCP Server stateless |
-| An toàn | Dữ liệu tổng hợp; PII masking trước Gemini/log; email chỉ là draft |
-| Kiểm thử | 8 scenario nội bộ; đạt tối thiểu 7/8 = 87,5% |
-| Ngoài P0 | HubSpot, Campaign, gửi email thật, auth production, long-term memory |
+| Mở hồ sơ khách hàng → mở lịch sử tương tác → mở danh sách cơ hội bán | Chuyển qua lại giữa những màn hình rời rạc |
+| Ghép các mẩu thông tin vừa đọc lại với nhau | Tự tổng hợp trong đầu, không công cụ nào làm hộ |
+| Viết email hoặc kịch bản gọi | Bắt đầu từ trang trắng, mỗi lần một kiểu |
 
-Chi tiết và lý do nằm trong `docs/01_PROJECT_DECISIONS.md`.
+Gốc rễ không nằm ở kỹ năng của RM hay tốc độ của CRM. CRM được thiết kế để **lưu trữ** dữ liệu chuẩn
+xác (*system of record*) và nó làm tốt việc đó — nhưng công việc hằng ngày của RM lại cần một thứ
+khác: một hệ thống biết **nối các mẩu dữ liệu thành hành động** (*system of intelligence*). Phần
+"nối" đó hiện do con người gánh, và nó không co giãn được khi số khách hàng tăng lên.
 
-## 3. Vai trò làm việc
+Hướng giải quyết vì thế không phải là thay CRM, mà là đặt thêm **một lớp co-pilot** phía trên: RM hỏi
+bằng tiếng Việt như nói với đồng nghiệp, hệ thống tự chọn đúng công cụ CRM để gọi, tự tổng hợp, tự
+soạn bản nháp — quyền quyết định cuối cùng vẫn thuộc về RM.
 
-| Vai trò | Trách nhiệm |
+---
+
+## 2. Dự án này demo phần nào của bài toán
+
+Bài toán đầy đủ rộng hơn nhiều những gì repo này làm. Đây là **một lát cắt được thu hẹp có chủ đích**,
+và trọng tâm của nó là **MCP (Model Context Protocol)**: làm sao để một AI Host **khám phá** được
+những công cụ CRM đang có (`tools/list`), **chọn đúng** công cụ cho câu hỏi của người dùng, **gọi** nó
+qua một giao thức chuẩn (`tools/call`), và **giữ ngữ cảnh** qua nhiều lượt hội thoại.
+
+RAG, PII masking và sinh nội dung có mặt ở đây để MCP có việc thật để làm trên dữ liệu thật — chúng là
+bối cảnh xung quanh, không phải thứ được trình diễn riêng.
+
+Cụ thể, với một RM, bản demo này làm được bốn việc:
+
+1. **Tra cứu 360° một khách hàng** — hồ sơ, lịch sử tương tác, cơ hội bán, chiến dịch.
+2. **Hỏi tiếp bằng "khách hàng này"** mà không phải nhắc lại mã khách hàng ở mỗi lượt.
+3. **Tra kiến thức sản phẩm** bằng semantic search thay vì lật tài liệu.
+4. **Soạn nháp email và kịch bản gọi** có trích nguồn, và luôn cần RM duyệt.
+
+Ranh giới in-scope/out-of-scope đầy đủ nằm ở mục 3; những gì cố tình chưa làm nằm ở mục 13.
+
+---
+
+## 3. Dự án này chứng minh điều gì
+
+| # | Điều được chứng minh | Cách chứng minh trong code |
+| --- | --- | --- |
+| 1 | **MCP thật**, không phải mô phỏng | AI Host là MCP Client thật (`ModelContextProtocol`), gọi một MCP Server thật (`ModelContextProtocol.AspNetCore`) qua Streamable HTTP tại `/mcp` |
+| 2 | **RAG thật** | 21 tài liệu tiếng Việt được embed bằng `gemini-embedding-001` (768 chiều, L2-normalize) và lưu trong Chroma; truy xuất theo khoảng cách `l2` |
+| 3 | **Hội thoại nhiều lượt** | AI Host giữ `CurrentCustomerId` theo `sessionId`; "khách hàng này" ở lượt sau được phân giải xác định, không phụ thuộc model đoán đúng |
+| 4 | **Draft có nguồn + không rò PII** | Tên khách hàng được thay bằng placeholder trước khi gửi Gemini và khôi phục ở máy cục bộ; email/điện thoại/số tài khoản **không bao giờ** được đưa vào prompt |
+
+### Phạm vi
+
+| In-scope | Out-of-scope |
 | --- | --- |
-| Người dùng/Product Owner | Chốt phạm vi, truyền plan/feedback giữa ChatGPT và Claude, quyết định commit |
-| ChatGPT/Reviewer | Lập kế hoạch, review và phê duyệt plan của Claude, kiểm tra evidence sau checkpoint, quản lý scope |
-| Claude/Implementer | Khảo sát repo, đề xuất plan, chờ phê duyệt, implement đúng một checkpoint, chạy kiểm tra và báo cáo evidence |
+| 7 MCP tool read-only trên dữ liệu CRM tổng hợp | Kết nối CRM thật (HubSpot, Salesforce…) |
+| RAG trên product knowledge / email template / call-script playbook | Gửi email thật, thực hiện cuộc gọi thật |
+| Chat tiếng Việt nhiều lượt, state trong bộ nhớ | Authentication/authorization mức production |
+| Sinh email nháp + kịch bản gọi nháp, có trích nguồn | Long-term memory, personalization qua nhiều phiên |
+| PII masking trước khi gọi LLM và trước khi ghi log | DLP/compliance review đạt chuẩn ngân hàng |
+| UI tối thiểu có tool trace và source chip | Docker Compose / triển khai cloud (**chưa có**) |
 
-ChatGPT không thể tự biết thay đổi trong phiên Claude nếu chưa được cung cấp repository/diff/log. Sau mỗi checkpoint, gửi cho ChatGPT gói evidence định nghĩa trong `docs/09_CLAUDE_WORKFLOW_GUIDE.md`.
+Toàn bộ dữ liệu là **dữ liệu tổng hợp** (`synthetic: true`), sinh xác định từ seed cố định. Không có
+dữ liệu khách hàng thật ở bất kỳ đâu trong repo.
 
-## 4. Thứ tự đọc
+---
 
-1. `CLAUDE.md`
-2. `docs/01_PROJECT_DECISIONS.md`
-3. `docs/02_ARCHITECTURE.md`
-4. `docs/03_ACCEPTANCE_CRITERIA.md`
-5. `docs/04_P0_CHECKPOINTS.md`
-6. `docs/05_IMPLEMENTATION_PLAN_9_DAYS.md`
-7. Các đặc tả dữ liệu, MCP, RAG/PII
-8. Workflow và prompt
-9. Demo runbook
-10. `docs/CHECKPOINT_STATUS.md`
+## 4. Công nghệ sử dụng
 
-## 5. Bản đồ tài liệu
+| Lớp | Lựa chọn | Ghi chú |
+| --- | --- | --- |
+| Runtime / backend | **.NET 10** (`net10.0`), ASP.NET Core **Minimal API** | SDK ghim `10.0.400` qua `global.json`, `rollForward: latestPatch` |
+| Frontend | **Razor Pages** một trang + **vanilla JavaScript** + CSS thuần | Không React/Vue/Angular, không bundler, không npm |
+| LLM sinh câu trả lời | **`gemini-3.5-flash-lite`** | Dùng cho tool-calling ở AI Host, sinh email và sinh kịch bản gọi |
+| SDK gọi Gemini | **`Google.GenAI` 1.19.0** | Ghim version tập trung ở `Directory.Packages.props` |
+| Embedding | **`gemini-embedding-001`**, **768 chiều**, L2-normalize | Phân biệt task type `RETRIEVAL_DOCUMENT` / `RETRIEVAL_QUERY` |
+| Vector store | **Chroma `chromadb/chroma:1.5.9`**, metric `l2` | Gọi qua HTTP API v2 (không có package .NET chính thức) |
+| Giao thức tool | **MCP** — `ModelContextProtocol` + `ModelContextProtocol.AspNetCore` **2.2.0** | Streamable HTTP, `HttpServerSessionMode.Stateless` |
+| Cơ sở dữ liệu | **Không có RDBMS/NoSQL** | Dữ liệu CRM là **file JSON tĩnh** trong `data/crm/`; conversation state là **in-memory** (`ConcurrentDictionary`); Chroma chỉ chứa vector knowledge |
+| Đóng gói | **Chưa có Docker Compose** | Chỉ Chroma chạy trong container; 3 service .NET chạy bằng `dotnet run` |
+| Kiểm thử | **xUnit v3 4.0.0** trên **Microsoft.Testing.Platform** | Bộ mặc định chạy **offline** hoàn toàn; test gọi Gemini/Chroma thật là opt-in |
+| Quản lý secret | **.NET User Secrets** (khuyến nghị) hoặc environment variable | Không có dotenv loader trong repo |
 
-| File | Mục đích |
+---
+
+## 5. Kiến trúc
+
+Bốn tiến trình chạy song song trên máy local, cộng Gemini API ở ngoài:
+
+```text
+                    ┌───────────────────────────────────────────────┐
+                    │  Trình duyệt  http://localhost:5081           │
+                    │  Razor Page + vanilla JS, tự sinh sessionId   │
+                    └───────────────────┬───────────────────────────┘
+                                        │ POST /api/chat  {message, sessionId}
+                                        ▼
+     ┌──────────────────────────────────────────────────────────────────────┐
+     │  CrmCopilot.Web  :5081   — AI HOST + MCP CLIENT + UI                 │
+     │  InputGuard → ConversationState → Gemini tool-calling → MCP Client   │
+     │  Sở hữu DUY NHẤT conversation state. KHÔNG bao giờ gọi thẳng CRM.    │
+     └────────────┬──────────────────────────────────┬──────────────────────┘
+                  │ MCP / Streamable HTTP            │ HTTPS
+                  │ POST :5090/mcp                   ▼
+                  │                        ┌────────────────────┐
+                  ▼                        │  Gemini API        │
+     ┌────────────────────────────────┐    │  chat + embedding  │
+     │  CrmCopilot.McpServer  :5090   │───▶│  (bên ngoài)       │
+     │  MCP SERVER — 7 tool           │    └────────────────────┘
+     │  STATELESS: mọi tool nhận      │
+     │  customerId tường minh         │
+     └────┬──────────────────────┬────┘
+          │ HTTP                 │ HTTP (Chroma API v2)
+          ▼                      ▼
+ ┌────────────────────┐   ┌──────────────────────────────┐
+ │ MockCrmApi  :5100  │   │ Chroma  :8000                │
+ │ REST đọc-only      │   │ collection                   │
+ │ đọc data/crm/*.json│   │ crm-copilot-knowledge        │
+ │ 12 KH / 26 tương   │   │ 21 vector (product /         │
+ │ tác / 8 cơ hội /   │   │ email-template / call-script)│
+ │ 3 chiến dịch       │   │ KHÔNG chứa customer/chat     │
+ └────────────────────┘   └──────────────────────────────┘
+```
+
+### Ai sở hữu cái gì
+
+| Thành phần | Sở hữu | Không bao giờ làm |
+| --- | --- | --- |
+| `CrmCopilot.Web` | UI, conversation state, vòng lặp tool-calling, gate PII đầu vào | Gọi trực tiếp `MockCrmApi`, đọc file JSON CRM |
+| `CrmCopilot.McpServer` | 7 MCP tool, RAG orchestration, masking trước khi sinh nội dung | Lưu conversation state, lưu lịch sử chat |
+| `CrmCopilot.MockCrmApi` | Dataset CRM tổng hợp + 5 endpoint REST đọc-only | Ghi dữ liệu, gọi LLM |
+| `CrmCopilot.Contracts` | DTO, interface, mã lỗi, quy tắc định dạng ID dùng chung | Chứa logic hạ tầng |
+| Chroma | Vector của knowledge document | Chứa customer, interaction, chat, audit log |
+
+### Ranh giới tin cậy
+
+- Nội dung truy xuất từ RAG được coi là **dữ liệu không tin cậy**, không phải chỉ thị cho model.
+- UI render mọi nội dung do model/CRM sinh ra bằng `textContent`, **không dùng `innerHTML`** với giá
+  trị nội suy — output của model không thể trở thành HTML thực thi được.
+- Mọi lỗi trả về đều có cấu trúc; không có stack trace hay thông điệp nội bộ nào lộ ra UI.
+
+---
+
+## 6. Luồng làm việc của ứng dụng
+
+### 6.1 Một lượt chat đi qua đâu
+
+```text
+Trình duyệt: POST /api/chat { message, sessionId }
+   │
+   1. Kiểm tra sessionId phải là GUID hợp lệ          → sai: 400 INVALID_ARGUMENT
+   │
+   2. InputGuard (chạy TRƯỚC mọi lời gọi Gemini/MCP)
+   │     • có email / SĐT / chuỗi 9+ chữ số / địa chỉ → 400 PII_REJECTED
+   │     • có mã hình dạng sai (vd. CS-0002)          → 400 CUSTOMER_ID_INVALID
+   │     • có cụm tên viết hoa liên tiếp, không có mã → 400 CUSTOMER_ID_REQUIRED
+   │     • có từ khoá CRM, không mã, phiên chưa có KH → 400 CUSTOMER_ID_REQUIRED
+   │
+   3. Nạp ConversationState theo sessionId (CurrentCustomerId, LastIntent…)
+   │
+   4. MCP handshake → tools/list                      → lỗi: 503 MCP_UNAVAILABLE
+   │     Gemini CHỈ nhìn thấy giao của (allowlist 7 tool) ∩ (tools/list)
+   │     → tool ngoài allowlist là vô hình về mặt cấu trúc, không phải lọc sau
+   │
+   5. Gọi Gemini (temperature 0.1) kèm system instruction tiếng Việt
+   │     Nếu phiên đang có khách hàng, mã đó được nhắc thẳng trong system instruction
+   │
+   6. Model trả về function call → Host xử lý TRƯỚC khi gửi đi:
+   │     a. Thiếu customerId? → tự điền từ CurrentCustomerId
+   │        (không đè khi model đã đưa query — hai tham số đó loại trừ nhau)
+   │     b. productCode / opportunityId sai định dạng? → BỎ, không sửa,
+   │        rồi gấp cụm chữ đó vào objective để RAG tự phân giải
+   │     c. Gọi trùng hệt lượt trước?  → 400 DUPLICATE_TOOL_CALL
+   │     d. Gọi nhiều tool song song?  → 400 MULTIPLE_FUNCTION_CALLS_NOT_SUPPORTED
+   │        (ngoại lệ duy nhất: generate_email kèm search_product_knowledge thừa
+   │         được gộp lại thành một lời gọi generate_email)
+   │     e. Đã đủ 3 lần gọi MCP?       → 409 TOOL_LOOP_LIMIT_EXCEEDED
+   │
+   7. Gọi MCP tool thật → ghi {toolName, status, traceId, durationMs} vào toolTrace
+   │
+   8. Quy tắc "tool kết thúc lượt":
+   │     6 tool CRM có cấu trúc thành công  → KẾT THÚC LƯỢT NGAY.
+   │       Host tự soạn câu trả lời xác định từ dữ kiện không-PII (mã KH + số lượng);
+   │       kết quả KHÔNG được gửi ngược lại cho Gemini.
+   │     search_product_knowledge          → nội dung (không chứa PII) được gửi lại
+   │       cho Gemini để model viết câu trả lời có căn cứ. Quay lại bước 5.
+   │
+   9. Trả về { reply, status, sourceIds, toolTrace, data, error }
+   │
+  10. UI đổ data vào đúng panel và vẽ source chip + accordion tool trace
+```
+
+**Vì sao 6 tool kết thúc lượt ngay:** payload gửi lại Gemini đã bị lược sạch mọi trường ngữ nghĩa (tên
+khách hàng, nội dung tương tác). Nếu vẫn bắt model viết prose về dữ liệu nó không nhìn thấy, model sẽ
+bịa. Nên Host tự soạn câu trả lời, còn dữ liệu thật hiển thị ở panel có cấu trúc.
+`search_product_knowledge` là ngoại lệ vì nội dung của nó không chứa PII và được gửi nguyên vẹn.
+
+### 6.2 Tám kịch bản người dùng
+
+| Người dùng hỏi | Tool được chọn | Tool tự làm gì bên trong | `sourceIds` trả về | Panel hiển thị |
+| --- | --- | --- | --- | --- |
+| "Tìm hồ sơ khách hàng **CUS-0001**" | `get_customer` | Gọi `GET /api/customers/CUS-0001` | `crm:customer:CUS-0001` | Khách hàng |
+| "Khách hàng này có những **tương tác** gần nhất nào?" | `get_interactions` | Lấy tương tác mới nhất trước, mặc định 5 | `crm:interaction:INT-…` | Tương tác gần đây |
+| "**Khách hàng này** …" (lượt sau) | tool tương ứng | Host tự điền `customerId` từ state — model không cần đoán | như trên | như trên |
+| "Khách hàng này đang có **cơ hội bán** nào?" | `get_opportunities` | Lọc theo `status` (Open/Won/Lost/Closed) rồi mới cắt `limit` | `crm:opportunity:OPP-…` | Cơ hội bán |
+| "Khách hàng này thuộc **chiến dịch** nào?" | `get_campaigns` | Tra theo `eligibleCustomerIds` tường minh, không suy từ segment | `crm:campaign:CMP-…` | Chiến dịch |
+| "Có **sản phẩm tiết kiệm** 6 tháng nào phù hợp?" | `search_product_knowledge` | Embed câu hỏi → truy vấn Chroma → lọc theo ngưỡng khoảng cách | `kb:product:…`, `kb:email-template:…` | Tool trace + source chip |
+| "**Soạn email** follow-up về gói tiết kiệm 6 tháng" | `generate_email` | **Tự** lấy tương tác gần nhất + **tự** truy xuất product và email template → mask PII → gọi Gemini → khôi phục tên ở máy cục bộ | `kb:product:…`, `kb:email-template:…`, `crm:interaction:…` | Email nháp |
+| "**Soạn kịch bản gọi** cho khách hàng này" | `generate_call_script` | **Tự** lấy tương tác + cơ hội bán + **tự** truy xuất call-script playbook và product | `kb:call-script:…`, `kb:product:…`, `crm:opportunity:…` | Kịch bản gọi |
+
+> Hai tool sinh nội dung **tự truy xuất lấy bằng chứng của mình**. Không cần — và không nên — gọi
+> `search_product_knowledge` trước chúng: kết quả của lần gọi ngoài đó không bao giờ đến được bản nháp.
+
+### 6.3 Bảy MCP tool
+
+Tất cả đều `ReadOnly = true`, `Destructive = false`. Không tool nào ghi dữ liệu.
+
+| Tool | Tham số | Nguồn dữ liệu |
+| --- | --- | --- |
+| `get_customer` | `customerId?` **hoặc** `query?` (đúng một trong hai) | Mock CRM API |
+| `get_interactions` | `customerId`, `limit` (1–20, mặc định 5) | Mock CRM API |
+| `get_opportunities` | `customerId`, `status?` (Open/Won/Lost/Closed), `limit` (1–20, mặc định 5) | Mock CRM API |
+| `get_campaigns` | `customerId`, `limit` (1–20, mặc định 5) | Mock CRM API |
+| `search_product_knowledge` | `query` (≤1000 ký tự), `topK` (1–5, mặc định 3), `documentTypes?` (`product`, `email_template`) | Chroma + Gemini embedding |
+| `generate_email` | `customerId`, `objective` (≤500 ký tự), `tone` (`professional` \| `professional_warm` \| `concise`), `productCode?` | CRM + Chroma + Gemini |
+| `generate_call_script` | `customerId`, `objective?` (≤500 ký tự), `opportunityId?`, `productCode?` | CRM + Chroma + Gemini |
+
+Mọi tool trả về **cùng một envelope**:
+
+```jsonc
+{
+  "status":    "success | not_found | ambiguous | error",
+  "traceId":   "…",
+  "sourceIds": ["crm:customer:CUS-0001"],
+  "data":      { /* khác nhau theo tool và theo status */ },
+  "error":     null            // hoặc { code, message, retryable }
+}
+```
+
+Lỗi nghiệp vụ **không** dùng cờ `isError` của tầng MCP — chúng là tool result bình thường mang `status`
+tương ứng. `ambiguous` (trùng tên khách hàng) là **kết quả có thể hành động**, không phải lỗi.
+
+`search_product_knowledge` **không** tìm được call-script playbook: chúng nằm chung collection nhưng
+nằm ngoài contract của tool này, chỉ `generate_call_script` mới truy xuất tới.
+
+### 6.4 Mã lỗi và HTTP status của `/api/chat`
+
+| HTTP | Mã lỗi | Nghĩa |
+| --- | --- | --- |
+| `200` | — | Thành công |
+| `404` | `NOT_FOUND` | Mã hợp lệ nhưng không tồn tại trong dataset |
+| `409` | — | Trùng tên khách hàng, cần chọn mã cụ thể |
+| `409` | `TOOL_LOOP_LIMIT_EXCEEDED` | Đã dùng hết 3 lần gọi tool của lượt |
+| `400` | `INVALID_ARGUMENT` | `sessionId` sai, tin nhắn rỗng hoặc quá 2000 ký tự |
+| `400` | `PII_REJECTED` | Tin nhắn chứa email / SĐT / số tài khoản / địa chỉ |
+| `400` | `CUSTOMER_ID_REQUIRED` | Cần mã khách hàng nhưng chưa có |
+| `400` | `CUSTOMER_ID_INVALID` | Mã sai định dạng (ví dụ `CS-0002`) |
+| `400` | `NAME_LOOKUP_NOT_SUPPORTED` | Tra cứu theo tên không hỗ trợ qua chat |
+| `400` | `UNKNOWN_TOOL`, `DUPLICATE_TOOL_CALL`, `MULTIPLE_FUNCTION_CALLS_NOT_SUPPORTED` | Vi phạm chính sách chọn tool ở Host |
+| `503` | `MCP_UNAVAILABLE`, `UPSTREAM_UNAVAILABLE`, `RAG_UNAVAILABLE` | Dịch vụ phụ thuộc không sẵn sàng |
+| `502` | `MODEL_ERROR`, `MCP_PROTOCOL_ERROR`, `MCP_INVALID_RESPONSE`, `INTERNAL_ERROR` | Lỗi giao thức/model/nội bộ |
+
+Thông điệp hiển thị cho RM luôn là tiếng Việt an toàn — không lộ regex, quy ước định dạng, tên
+validator hay stack trace, kể cả khi mã lỗi nội bộ chi tiết hơn.
+
+### 6.5 PII và an toàn
+
+**Ba cơ chế masking** trước khi bất kỳ nội dung nào tới Gemini:
+
+1. **Loại trừ về mặt cấu trúc** — `email`, `phone`, `accountReference` **không bao giờ được đọc vào**
+   prompt hay câu truy vấn. Đây là bảo đảm vô điều kiện, không phụ thuộc regex có khớp hay không.
+2. **Thay thế theo trường** — `fullName` được thay bằng `{{CUSTOMER_NAME}}` ở mọi vị trí; tên thật chỉ
+   được khôi phục **ở máy cục bộ** sau khi model trả kết quả. Nếu model làm mất placeholder, hệ thống
+   chèn lời chào trung tính "Kính gửi Anh/Chị,".
+3. **Regex phòng vệ bổ sung** — email / điện thoại / chuỗi số dài / chuỗi giống secret token trong văn
+   bản tự do vẫn bị che, kể cả khi không phải giá trị của chính khách hàng này.
+
+Các bảo đảm khác:
+
+- `requiresHumanApproval` do **server ép bằng `true`** — kể cả khi model trả về `false`.
+- Không bịa lãi suất: corpus knowledge không chứa ký tự `%` nào, nên mọi con số phần trăm trong bản
+  nháp đều bị coi là bịa và bị chặn.
+- **Tool trace chỉ hiển thị tên trường đã ẩn** (`name`, `email`, `phone`, `accountReference`), không
+  bao giờ hiển thị giá trị.
+- Audit log chỉ ghi trường dẫn xuất an toàn — `customerId` được **băm**, không ghi nội dung email, tên,
+  số điện thoại, API key hay exception thô.
+- Trạng thái hội thoại lưu lại tin nhắn **đã được khử PII cơ học** trước khi ghi.
+
+---
+
+## 7. Cấu trúc thư mục
+
+```text
+CrmCopilot/
+├── CLAUDE.md                     # Quy tắc bắt buộc khi làm việc trong repo
+├── README.md                     # File này
+├── CrmCopilot.slnx               # Solution (định dạng slnx)
+├── global.json                   # Ghim .NET SDK 10.0.400 + runner Microsoft.Testing.Platform
+├── Directory.Packages.props      # Central Package Management — mọi version ghim ở đây
+├── .env.example                  # Danh sách TÊN biến môi trường (KHÔNG được tự động nạp)
+│
+├── data/
+│   ├── crm/                      # Dataset CRM tổng hợp, seed 20260818
+│   │   ├── customers.json        #   12 khách hàng
+│   │   ├── interactions.json     #   26 tương tác
+│   │   ├── opportunities.json    #    8 cơ hội bán
+│   │   └── campaigns.json        #    3 chiến dịch
+│   └── knowledge/                # Corpus RAG — 21 document, tất cả tiếng Việt
+│       ├── products.json         #    6 sản phẩm
+│       ├── email-templates.json  #    8 mẫu email
+│       └── call-scripts.json     #    7 playbook kịch bản gọi
+│
+├── src/
+│   ├── CrmCopilot.Contracts/     # DTO + interface dùng chung, không có hạ tầng
+│   │   ├── Api/                  #   Envelope REST
+│   │   ├── Chat/                 #   ChatRequest/Response, mã lỗi, tool trace
+│   │   ├── Crm/                  #   CustomerDto, InteractionDto, OpportunityDto, CampaignDto,
+│   │   │                         #   ICrmGateway, CustomerIdFormat, ProductCodeFormat
+│   │   ├── Knowledge/            #   IKnowledgeRetriever, KnowledgeMatch, KnowledgeDocumentType
+│   │   ├── Mcp/                  #   McpToolResult + DTO data theo từng tool
+│   │   └── Pii/                  #   PiiPatterns (dùng chung Web và McpServer)
+│   │
+│   ├── CrmCopilot.MockCrmApi/    # REST đọc-only trên dataset JSON  (:5100)
+│   │   ├── Data/                 #   Loader + generator dataset xác định
+│   │   ├── Endpoints/            #   5 endpoint khách hàng
+│   │   └── Search/               #   Chuẩn hoá và tìm theo tên
+│   │
+│   ├── CrmCopilot.McpServer/     # MCP Server + RAG                 (:5090)
+│   │   ├── Crm/                  #   CustomerTools, OpportunityTools, CampaignTools, MockCrmGateway
+│   │   ├── Knowledge/            #   Chroma client, Gemini embedding, retriever, ingestion
+│   │   ├── Email/                #   EmailTools, PiiMasker, GeminiEmailDraftGenerator
+│   │   ├── CallScript/           #   CallScriptTools, template catalog, generator
+│   │   └── Tools/                #   Helper dựng envelope tool result
+│   │
+│   └── CrmCopilot.Web/           # AI Host + MCP Client + UI        (:5081)
+│       ├── Chat/                 #   ChatOrchestrator, InputGuard, ApprovedMcpToolNames,
+│       │                         #   GeminiChatClient, McpClientProvider, ConversationState
+│       ├── Pages/Index.cshtml    #   Trang duy nhất
+│       └── wwwroot/              #   app.js + app.css (vanilla)
+│
+├── tests/CrmCopilot.Tests/       # Một test project cho toàn solution
+│   ├── Acceptance/               #   Bộ 8 scenario T01–T08 + runner + report writer
+│   ├── Crm/  Knowledge/  Mcp/    #   Test theo tầng
+│   ├── Email/  CallScript/  Web/
+│   └── TestSupport/              #   Host in-memory và các fake dùng chung
+│
+└── docs/                         # Tài liệu điều hành và đặc tả
+```
+
+---
+
+## 8. Yêu cầu hệ thống
+
+| Thành phần | Yêu cầu |
 | --- | --- |
-| `CLAUDE.md` | Luật bắt buộc Claude phải tuân theo trong repo |
-| `01_PROJECT_DECISIONS.md` | Các quyết định kiến trúc/phạm vi đã khóa |
-| `02_ARCHITECTURE.md` | Thành phần, luồng dữ liệu, ownership và trust boundary |
-| `03_ACCEPTANCE_CRITERIA.md` | Tiêu chí pass/fail của MVP và 8 test scenario |
-| `04_P0_CHECKPOINTS.md` | Chia P0 thành checkpoint nhỏ có gate |
-| `05_IMPLEMENTATION_PLAN_9_DAYS.md` | Lịch triển khai 9 ngày và phương án rút xuống 7 ngày |
-| `06_DATA_AND_MOCK_API_SPEC.md` | Dataset tổng hợp, schema, endpoint và adapter |
-| `07_MCP_TOOL_CONTRACTS.md` | Contract tool P0 và lỗi chuẩn hóa |
-| `08_RAG_EMAIL_AND_PII_SPEC.md` | Ingestion, retrieval, email generation và masking |
-| `09_CLAUDE_WORKFLOW_GUIDE.md` | Quy trình ChatGPT ↔ người dùng ↔ Claude |
-| `10_CLAUDE_PROMPTS.md` | Prompt mẫu theo checkpoint và prompt review |
-| `11_DEMO_RUNBOOK.md` | Kịch bản demo, fallback và checklist |
-| `12_POST_MVP_AND_INTEGRATION.md` | Opportunity, call script, HubSpot, Docker/cloud |
-| `13_REFERENCE_SOURCES.md` | Nguồn chính thức và ngày kiểm chứng |
-| `14_ACCEPTANCE_SCENARIO_REPORT.md` | Kết quả bộ 8 scenario T01–T08 theo từng lớp evidence (D/L/B) |
-| `CHECKPOINT_STATUS.md` | Sổ trạng thái, evidence, blocker và quyết định review |
+| .NET SDK | **`10.0.400`** (band `10.0.4xx`, `rollForward: latestPatch`) — kiểm tra bằng `dotnet --version` |
+| Docker | Cần cho container Chroma. Không cần cho 3 service .NET |
+| Gemini API key | Bắt buộc. Cần quyền gọi cả model chat và model embedding |
+| Hệ điều hành | Windows + PowerShell là môi trường đã kiểm chứng. Mã nguồn không phụ thuộc nền tảng |
+| Port trống | `5081` (Web) · `5090` (MCP Server) · `5100` (Mock CRM) · `8000` (Chroma) |
+| Mạng | Cần ra Internet để gọi Gemini API |
 
-## 6. Quy tắc sử dụng
+---
 
-- Không giao Claude một prompt triển khai toàn bộ dự án.
-- Mỗi lần chỉ mở **một checkpoint**.
-- Claude phải gửi plan trước; ChatGPT review; người dùng xác nhận phê duyệt; Claude mới sửa code.
-- Không đánh dấu checkpoint hoàn tất nếu thiếu lệnh kiểm tra và output thực tế.
-- Nếu thay model embedding hoặc số chiều, phải xóa/re-index collection tương ứng.
-- Nếu P0 chưa ổn định, mọi đề xuất HubSpot/cloud/UI nâng cao chuyển vào backlog.
+## 9. Cài đặt và chạy
 
-## 7. Trạng thái ban đầu
-
-- P0-00 — Documentation Baseline: **DONE**
-- P0-01 — Repository & Solution Scaffold: **DONE**
-- P0-02 — Synthetic Data & Mock CRM API: **DONE**
-- P0-03 — Gemini Embedding & Chroma RAG: **DONE** (PASS; merged to `develop` via PR #7; xem mục 8 "Gemini Embedding & Chroma RAG (P0-03)" và `docs/CHECKPOINT_STATUS.md`)
-- P0-04 — MCP Server Core Tools: **DONE** (PASS; merged to `develop` via PR #8; xem mục 8 "MCP Server Core Tools (P0-04)" và `docs/CHECKPOINT_STATUS.md`)
-- P0-05 — AI Host + MCP Client: **DONE** (PASS; merged to `develop` via PR #9; xem mục 8 "AI Host + MCP Client (P0-05)" và `docs/CHECKPOINT_STATUS.md`)
-- P0-06 — Conversation State: **DONE** (PASS; live acceptance confirmed 2026-08-24; merged to `develop` via PR #11, `042f65b` → merge `340b678`; xem mục 8 "Conversation State (P0-06)" và `docs/CHECKPOINT_STATUS.md`)
-- P0-07 — RAG Email Draft + PII: **DONE** (PASS; live acceptance confirmed 2026-08-24; merged to `develop` via PR #12, `b463742` → merge `ba4c2ba`; xem `docs/CHECKPOINT_STATUS.md`)
-- P0-08 — Web UI + Trace + Sources: **DONE (merged)** (merged to `develop` via PR #13, `cf2ae3e` → merge `a91c041`; verdict chưa được ghi trong `docs/CHECKPOINT_STATUS.md` tại thời điểm merge — xem blocker B-04)
-- P0-09 — Acceptance, Hardening & Demo (Pha A): **DONE (merged)** — merged vào `develop` qua PR #14 (`c7bcbd6`). Product Owner chốt: *PASS by Product Owner with explicit waiver/defer; C5/C6/C8 chưa chạy, được chuyển thành deferred verification debt.* Xem `docs/CHECKPOINT_STATUS.md`.
-- P0-10 — Hoàn thiện tool list (4 → 7 MCP tools): **READY_FOR_FINAL_REVIEW** trên `feature/p0-10-complete-mcp-tool-list` (tạo từ `develop` @ `c7bcbd6`). Implementation xong; build/offline/targeted/live/browser/security evidence đã đạt; **chưa** có final review độc lập, **chưa** merge. Xem mục 8 "Acceptance & Demo" và `docs/CHECKPOINT_STATUS.md`.
-
-`develop` chưa được merge vào `main` — `main` vẫn ở `afa47fd` (docs baseline).
-
-Chi tiết evidence/verdict từng checkpoint xem `docs/CHECKPOINT_STATUS.md`.
-
-## 8. Build & Run (P0-01 scaffold)
-
-Yêu cầu: .NET SDK khớp `global.json` (`10.0.400`, band `10.0.4xx`, `rollForward: latestPatch`).
-
-### Restore, build, test
+### Bước 1 — Restore và build
 
 ```powershell
 dotnet restore CrmCopilot.slnx
 dotnet build CrmCopilot.slnx --no-restore
-dotnet test tests/CrmCopilot.Tests/CrmCopilot.Tests.csproj --no-build --no-restore
 ```
 
-### Chạy từng service (chỉ có `/health` ở P0-01, chưa có business logic)
+Kỳ vọng: **0 Warning, 0 Error**.
 
-| Service | Lệnh chạy | Health URL |
-| --- | --- | --- |
-| `CrmCopilot.Web` | `dotnet run --project src/CrmCopilot.Web --launch-profile http --no-build` | http://localhost:5081/health |
-| `CrmCopilot.McpServer` | `dotnet run --project src/CrmCopilot.McpServer --launch-profile http --no-build` | http://localhost:5090/health |
-| `CrmCopilot.MockCrmApi` | `dotnet run --project src/CrmCopilot.MockCrmApi --launch-profile http --no-build` | http://localhost:5100/health |
+### Bước 2 — Chạy Chroma
 
-Chạy `dotnet build CrmCopilot.slnx` trước khi dùng `--no-build`. Mỗi service dùng port cố định qua `Properties/launchSettings.json` (profile `http`), không hard-code port trong `Program.cs`.
-
-`CrmCopilot.McpServer` yêu cầu biến môi trường `MOCKCRM_API_BASE_URL` (absolute URL, ví dụ `http://localhost:5100`) để khởi động — không có giá trị mặc định nào trong `appsettings.json`. Thiếu hoặc sai giá trị sẽ làm host fail fast ngay khi start thay vì âm thầm fallback. Xem mục "Secret hygiene" bên dưới để biết cách set giá trị này cho `dotnet run` cục bộ.
-
-Kể từ P0-03, chạy đầy đủ web host của `CrmCopilot.McpServer` (không dùng CLI verb `--ingest-knowledge`/`--query-knowledge`) còn yêu cầu thêm `GEMINI_API_KEY` và `CHROMA_BASE_URL` — cùng cơ chế fail-fast qua `ValidateOnStart()`. Hai CLI verb ở mục "Gemini Embedding & Chroma RAG (P0-03)" bên dưới **không** cần `MOCKCRM_API_BASE_URL`.
-
-### Mock CRM API (P0-02)
-
-Khi `CrmCopilot.MockCrmApi` đang chạy (`http://localhost:5100`), các endpoint đọc-only sau đã sẵn sàng, đọc từ `data/crm/customers.json` và `data/crm/interactions.json` (dataset tổng hợp, `synthetic: true`):
-
-| Method | Path | Mô tả |
-| --- | --- | --- |
-| GET | `/api/customers/{customerId}` | Tra cứu chính xác theo ID; `404 NOT_FOUND` nếu không thấy |
-| GET | `/api/customers?query={nameOrId}` | Tìm theo ID hoặc tên chuẩn hoá; `409` (body `ApiEnvelope<CustomerCandidateDto[]>`) nếu trùng tên |
-| GET | `/api/customers/{customerId}/interactions?limit=5` | Interaction mới nhất trước, `limit` 1–20; `404 NOT_FOUND` nếu customer không tồn tại |
-
-Ví dụ nhanh (canonical customer `CUS-0001`, xem `docs/06_DATA_AND_MOCK_API_SPEC.md` §3):
-
-```powershell
-curl http://localhost:5100/api/customers/CUS-0001
-curl http://localhost:5100/api/customers/CUS-0001/interactions
-```
-
-### Regenerate the synthetic dataset
-
-Dataset được sinh deterministic từ seed cố định (`SyntheticDatasetGenerator`), không chỉnh tay file JSON lớn. Không chạy lệnh dưới đây với `--customers` lớn và commit kết quả nếu chưa được Product Owner phê duyệt kích thước dataset mới.
-
-```powershell
-dotnet run --project src/CrmCopilot.MockCrmApi --no-build -- --generate-dataset [--customers N] [--seed N] [--output <dir>]
-```
-
-Không tham số sẽ tái tạo đúng dataset đã checked-in (12 customers / ~26 interactions) vào `data/crm/`, độc lập với current working directory.
-
-### Gemini Embedding & Chroma RAG (P0-03)
-
-RAG code sống trong `CrmCopilot.McpServer` (`Knowledge/`), theo đúng phân vai kiến trúc — MCP Server sở hữu RAG orchestration (docs/02_ARCHITECTURE.md §3). Nguồn dữ liệu là `data/knowledge/products.json` (6 sản phẩm), `data/knowledge/email-templates.json` (8 template) và `data/knowledge/call-scripts.json` (7 playbook kịch bản gọi, thêm ở P0-10) — tổng **21 record**, `synthetic: true`, `language: "vi"`; Chroma chỉ là index có thể xoá và tái tạo lại từ ba file này. `KnowledgeSourceLoader` đọc đúng ba file theo tên tường minh (không glob), và validate `sourceId` không trùng ngay khi load.
-
-**Chạy Chroma cục bộ** (image đã pin, volume đặt tên để dữ liệu tồn tại qua việc xoá container — chưa thêm `compose.yaml`, xem docs/02 §10):
+Image ghim version; volume đặt tên để dữ liệu còn nguyên khi xoá container:
 
 ```powershell
 docker run -d --name crm-copilot-chroma -p 8000:8000 -v crm-copilot-chroma-data:/data chromadb/chroma:1.5.9
 curl http://localhost:8000/api/v2/heartbeat
 ```
 
-**Ingest / query CLI** (dev-time only, không khởi động Kestrel, không cần `MOCKCRM_API_BASE_URL`):
+### Bước 3 — Cấu hình
+
+`GEMINI_API_KEY` là **secret** — dùng .NET User Secrets, không đưa vào file trong repo và không gõ
+thẳng vào dòng lệnh (dòng lệnh đi vào lịch sử shell):
 
 ```powershell
-$env:GEMINI_API_KEY = "<giá trị thật, chỉ cục bộ, không commit>"
-$env:CHROMA_BASE_URL = "http://localhost:8000"
-
-dotnet run --project src/CrmCopilot.McpServer --no-build -- --ingest-knowledge
-dotnet run --project src/CrmCopilot.McpServer --no-build -- --query-knowledge "<câu truy vấn>"
+dotnet user-secrets --project src/CrmCopilot.McpServer set GEMINI_API_KEY "<khoá của bạn>"
+dotnet user-secrets --project src/CrmCopilot.Web        set GEMINI_API_KEY "<khoá của bạn>"
 ```
 
-`--ingest-knowledge` in ra số document/embedded/unchanged và số record trong collection sau khi ingest; chạy lại lần hai trên dữ liệu không đổi phải cho `0 embedded` (idempotent — không gọi lại Gemini). `--query-knowledge` in ra L2 norm của query embedding (kỳ vọng ~1.0) và top-3 `sourceId`/`distance` — dùng để hiệu chỉnh `KnowledgeRetrievalOptions.MaxDistance` (mặc định `1.2`, xem `src/CrmCopilot.McpServer/Knowledge/KnowledgeRetrievalOptions.cs`).
+Các giá trị còn lại **không phải secret** — đặt vào `appsettings.Development.json` của từng project
+(file này đã bị `.gitignore` chặn), hoặc export thành environment variable:
 
-**Mandatory live acceptance run** — bắt buộc trước khi báo P0-03 PASS (không chỉ là smoke test tuỳ chọn), tách biệt khỏi bộ test mặc định (`dotnet test` chạy offline, xem `LiveRagAcceptanceTests`, `[Fact(SkipUnless=...)]`, opt-in qua chính hai biến môi trường trên):
+| Biến | Cần cho | Giá trị local |
+| --- | --- | --- |
+| `MOCKCRM_API_BASE_URL` | McpServer | `http://localhost:5100` |
+| `CHROMA_BASE_URL` | McpServer | `http://localhost:8000` |
+| `CHROMA_COLLECTION_NAME` | McpServer (tuỳ chọn) | mặc định `crm-copilot-knowledge` |
+| `MCPSERVER_BASE_URL` | Web | `http://localhost:5090` |
+| `GEMINI_API_KEY` | McpServer + Web | *(user secrets)* |
+
+Cách thay thế bằng environment variable trong phiên PowerShell hiện tại:
 
 ```powershell
-$env:CHROMA_COLLECTION_NAME = "crm-copilot-knowledge-livetest"   # tuỳ chọn — cô lập khỏi collection dev mặc định
-dotnet run --project src/CrmCopilot.McpServer --no-build -- --ingest-knowledge   # lần 1 (collection rỗng): kỳ vọng 21 embedded, count=21
-dotnet run --project src/CrmCopilot.McpServer --no-build -- --ingest-knowledge   # lần 2: kỳ vọng 0 embedded/21 unchanged, count vẫn=21
+$env:MOCKCRM_API_BASE_URL = "http://localhost:5100"
+$env:CHROMA_BASE_URL      = "http://localhost:8000"
+$env:MCPSERVER_BASE_URL   = "http://localhost:5090"
+$env:GEMINI_API_KEY = (Read-Host -AsSecureString "GEMINI_API_KEY" |
+  ForEach-Object { [Runtime.InteropServices.Marshal]::PtrToStringBSTR(
+      [Runtime.InteropServices.Marshal]::SecureStringToBSTR($_)) })
+```
+
+> `.env.example` chỉ là **danh sách tên biến** cho người đọc. Repo **không có** loader nào đọc file
+> `.env` — sao chép nó thành `.env` sẽ không có tác dụng gì với `dotnet run`.
+
+Thiếu biến bắt buộc, host **fail fast ngay lúc khởi động** (`ValidateOnStart`) thay vì âm thầm chạy sai.
+
+### Bước 4 — Nạp knowledge vào Chroma
+
+Hai lệnh CLI dưới đây chỉ chạy tác vụ rồi thoát, không khởi động web host và **không** cần
+`MOCKCRM_API_BASE_URL`:
+
+```powershell
+dotnet run --project src/CrmCopilot.McpServer --no-build -- --ingest-knowledge
+```
+
+Lần đầu trên collection rỗng: **21 document, 21 embedded, count = 21**.
+Chạy lại lần hai trên dữ liệu không đổi: **0 embedded / 21 unchanged** — đó là bằng chứng ingestion có
+tính idempotent (không gọi lại Gemini).
+
+Kiểm tra nhanh chất lượng truy xuất:
+
+```powershell
 dotnet run --project src/CrmCopilot.McpServer --no-build -- --query-knowledge "Khách hàng quan tâm gửi tiết kiệm an toàn kỳ hạn 6 tháng, cần liên hệ lại."
-# kỳ vọng PRD-SAV-006M nằm trong top-3, L2 norm ~1.0
 ```
 
-Nếu không có `GEMINI_API_KEY` thật hoặc không chạy được Chroma container tại thời điểm implement, đây là stop condition theo CLAUDE.md §9 — báo Product Owner thay vì chỉ dựa vào evidence offline.
+Kỳ vọng: L2 norm của query embedding ≈ `1.000000`, và `PRD-SAV-006M` nằm trong top-3.
 
-Để chỉ chạy `LiveRagAcceptanceTests` qua `dotnet test` (thay vì CLI ở trên), dùng đúng lệnh đã verify sau — dự án dùng Microsoft.Testing.Platform (`global.json`), không phải VSTest, nên các option filter là của chính `dotnet test`, truyền thẳng, **không** qua dấu `--`:
+### Bước 5 — Chạy ba service
 
-```powershell
-dotnet test tests/CrmCopilot.Tests/CrmCopilot.Tests.csproj --no-build --no-restore --filter-class "CrmCopilot.Tests.Knowledge.LiveRagAcceptanceTests"
-```
-
-`--filter-class`/`--filter-method`/`--filter-namespace`/`--filter-query`/`--filter` (cú pháp VSTest) đều là option gốc của `dotnet test` cho project này. `--filter-query` cần đúng 4 segment `/assemblyName/namespace/class/method` — một pattern 3 segment như `*/LiveRagAcceptanceTests/*` sẽ không khớp gì và chạy "Zero tests ran" (exit 5), không phải lỗi cấu hình.
-
-**Rollback**: `git revert` cho code (không `reset --hard`); named volume `crm-copilot-chroma-data` không bao giờ bị xoá; nếu cần dọn collection test, chỉ xoá đúng `crm-copilot-knowledge-livetest` qua Chroma delete-collection endpoint — không đụng tới collection dev mặc định `crm-copilot-knowledge`.
-
-### MCP Server Core Tools (P0-04)
-
-`CrmCopilot.McpServer` chạy MCP Server thật (official C# SDK `ModelContextProtocol.AspNetCore`, Streamable HTTP, `HttpServerSessionMode.Stateless`) tại `http://localhost:5090/mcp`, expose 3 tool read-only: `get_customer`, `get_interactions` (qua `ICrmGateway`/`MockCrmGateway`, P0-02), `search_product_knowledge` (qua `IKnowledgeRetriever`/`KnowledgeRetriever`, P0-03). Không có tool nào ghi dữ liệu; `generate_email` là P0-07.
-
-Chạy đầy đủ web host (không phải hai CLI verb `--ingest-knowledge`/`--query-knowledge`) cần cả ba biến môi trường bắt buộc — `MOCKCRM_API_BASE_URL`, `GEMINI_API_KEY`, `CHROMA_BASE_URL` — cùng cơ chế fail-fast `ValidateOnStart()` đã có từ P0-02/P0-03. `search_product_knowledge` gọi Gemini embedding thật khi được invoke; hai tool còn lại không cần Gemini nhưng vẫn cần `GEMINI_API_KEY` hợp lệ (không rỗng) để host khởi động được, vì `ValidateOnStart` áp dụng cho toàn bộ host, không riêng từng tool.
+Mỗi lệnh ở một terminal riêng. Profile `http` đặt `ASPNETCORE_ENVIRONMENT=Development`, nhờ đó user
+secrets và `appsettings.Development.json` được nạp tự động.
 
 ```powershell
-# Terminal 1
+# Terminal 1 — Mock CRM API
 dotnet run --project src/CrmCopilot.MockCrmApi --launch-profile http --no-build
 
-# Terminal 2 (Chroma đã chạy theo hướng dẫn P0-03 ở trên)
-$env:MOCKCRM_API_BASE_URL = "http://localhost:5100"
-$env:GEMINI_API_KEY = "<giá trị thật, chỉ cục bộ, không commit>"
-$env:CHROMA_BASE_URL = "http://localhost:8000"
+# Terminal 2 — MCP Server
 dotnet run --project src/CrmCopilot.McpServer --launch-profile http --no-build
 
-curl http://localhost:5090/health
-```
-
-Xác minh tool discovery/tools-call bằng một MCP client thật (khuyến nghị `McpClient`/`HttpClientTransport` từ package `ModelContextProtocol`, cùng API dùng trong `tests/CrmCopilot.Tests/Mcp/McpToolProtocolTests.cs`, hoặc MCP Inspector) — không dùng `curl` thô cho JSON-RPC Streamable HTTP (cần đúng `Accept` header và session framing). Mọi response, kể cả lỗi, đều là một tool result JSON thường (`IsError=false` ở tầng MCP) theo đúng envelope `{status, traceId, sourceIds, data, error}` (docs/07_MCP_TOOL_CONTRACTS.md §3) — không dùng MCP-level `isError` cho lỗi nghiệp vụ.
-
-### AI Host + MCP Client (P0-05)
-
-`CrmCopilot.Web` là AI Host thật: Gemini chat (`gemini-3.5-flash-lite`) chọn tool qua function calling, Host xác thực rồi gọi qua **MCP Client thật** (`ModelContextProtocol` package) tới `CrmCopilot.McpServer` — Web không bao giờ gọi trực tiếp `CrmCopilot.MockCrmApi` hoặc đọc JSON CRM (không có package/config nào cho phép việc đó). Vòng lặp tool bị giới hạn **tối đa 3 lần gọi MCP tool** cho mỗi lượt (Gemini có thể được gọi thêm một lần nữa, lần thứ 4, chỉ để xem kết quả tool thứ 3 và quyết định đã xong hay chưa — không có lần gọi MCP thứ 4). Tool ngoài danh sách 3 tool đã duyệt (`get_customer`, `get_interactions`, `search_product_knowledge`) không bao giờ được đưa vào schema gửi cho Gemini, kể cả khi MCP Server có expose thêm tool khác.
-
-**PII trước khi gọi Gemini:** tin nhắn tiếng Việt thô bị từ chối thẳng (không gọi Gemini/MCP) nếu chứa email, số điện thoại, số tài khoản/CCCD hoặc địa chỉ dạng free-text; tin nhắn có ý định tra cứu khách hàng (chứa từ khóa CRM hoặc một cụm tên viết hoa liên tiếp kiểu "Nguyễn Minh Anh") mà không kèm mã khách hàng hợp lệ (`CUS-####`) cũng bị từ chối, yêu cầu nhập đúng mã khách hàng. Đây là cơ chế **reject-gate best-effort** (không phải masking có placeholder/restore — đó là phạm vi P0-07); ưu tiên từ chối nhầm hơn là để lọt PII. Kết quả tool trả về cho Gemini cũng được tối giản: `get_customer`/`get_interactions` chỉ gửi lại `{status, sourceIds}` (không bao giờ gửi `CustomerDto`/`InteractionDto` — có PII), còn `search_product_knowledge` gửi lại toàn bộ nội dung khớp vì không chứa PII khách hàng.
-
-Chạy đầy đủ 4 process (McpServer/MockCrmApi/Chroma như P0-03/P0-04, cộng Web):
-
-```powershell
-# Terminal 1 (P0-02)
-dotnet run --project src/CrmCopilot.MockCrmApi --launch-profile http --no-build
-
-# Terminal 2: Chroma đã chạy theo P0-03 (ingest vào collection mặc định crm-copilot-knowledge
-# trước khi test luồng RAG — xem "Mandatory live acceptance run" bên dưới)
-
-# Terminal 3 (P0-04)
-$env:MOCKCRM_API_BASE_URL = "http://localhost:5100"
-$env:GEMINI_API_KEY = "<giá trị thật, chỉ cục bộ, không commit>"
-$env:CHROMA_BASE_URL = "http://localhost:8000"
-dotnet run --project src/CrmCopilot.McpServer --launch-profile http --no-build
-
-# Terminal 4 (P0-05) — Web cần McpServer đã sẵn sàng: handshake MCP là "lazy" (chỉ xảy ra ở
-# request /api/chat đầu tiên, không phải lúc Web start), nên Web start được ngay cả khi McpServer
-# chưa lên — nhưng request /api/chat đầu tiên sẽ lỗi MCP_UNAVAILABLE nếu McpServer chưa sẵn sàng.
-$env:MCPSERVER_BASE_URL = "http://localhost:5090"
-$env:GEMINI_API_KEY = "<giá trị thật, chỉ cục bộ, không commit>"
+# Terminal 3 — Web (AI Host + UI)
 dotnet run --project src/CrmCopilot.Web --launch-profile http --no-build
-
-curl http://localhost:5081/health
 ```
 
-Gọi thử `/api/chat` (từ P0-06, `sessionId` là bắt buộc — xem mục "Conversation State (P0-06)" bên dưới):
+MCP handshake diễn ra **lazy** — ở request `/api/chat` đầu tiên, không phải lúc Web khởi động. Web vẫn
+start được khi McpServer chưa lên, nhưng lượt chat đầu tiên sẽ trả `MCP_UNAVAILABLE`.
+
+### Bước 6 — Preflight
+
+Cả bốn dòng phải trả `200`. Khác `200` thì dừng, đừng dùng tiếp:
 
 ```powershell
-Invoke-RestMethod -Method Post http://localhost:5081/api/chat `
-  -Body (@{ message = "Tìm khách hàng CUS-0001"; sessionId = [guid]::NewGuid().ToString() } | ConvertTo-Json) -ContentType "application/json"
+foreach ($u in @(
+  "http://localhost:5100/health",
+  "http://localhost:5090/health",
+  "http://localhost:5081/health",
+  "http://localhost:8000/api/v2/heartbeat")) {
+  $r = Invoke-WebRequest -Uri $u -TimeoutSec 5 -UseBasicParsing
+  Write-Output "$u -> $($r.StatusCode)"
+}
 ```
 
-Response luôn là JSON `{reply, status, sourceIds, toolTrace, data, error}` — status HTTP tương ứng: `200` (success), `404` (not_found), `409` (ambiguous, hoặc đã đạt giới hạn tool-loop), `400` (input/tool-selection/sessionId không hợp lệ — PII_REJECTED, CUSTOMER_ID_REQUIRED, UNKNOWN_TOOL, INVALID_ARGUMENT, v.v.), `503` (MCP/CRM/RAG upstream unavailable), `502` (Gemini/MCP protocol lỗi hoặc lỗi nội bộ).
+Sau đó mở **<http://localhost:5081>**.
 
-**Mandatory live acceptance gate** — bắt buộc trước khi báo P0-05 PASS (giống P0-03), tách biệt khỏi test suite mặc định (`dotnet test` chạy offline với `FakeGeminiChatClient` + MCP protocol thật qua fakes, không cần key thật):
+### Sinh lại dataset CRM (tuỳ chọn)
+
+Dataset sinh xác định từ seed cố định — đừng sửa tay các file JSON lớn:
 
 ```powershell
-# 1) Ingest collection mặc định (không set CHROMA_COLLECTION_NAME → mặc định crm-copilot-knowledge)
-$env:GEMINI_API_KEY = "<giá trị thật>"
-$env:CHROMA_BASE_URL = "http://localhost:8000"
-dotnet run --project src/CrmCopilot.McpServer --no-build -- --ingest-knowledge
+dotnet run --project src/CrmCopilot.MockCrmApi --no-build -- --generate-dataset [--customers N] [--seed N] [--output <dir>]
+```
 
-# Từ P0-06, sessionId là bắt buộc trên mỗi request — dùng cùng một sessionId cho các bước 2-4 để
-# minh hoạ conversation state (bước 3/4 có thể bỏ "CUS-0001" và dùng "khách hàng này" thay thế).
+Không tham số sẽ tái tạo đúng dataset đang được commit.
+
+### Endpoint của Mock CRM API
+
+| Method | Path | Mô tả |
+| --- | --- | --- |
+| GET | `/api/customers/{customerId}` | Tra cứu chính xác theo mã; `404` nếu không có |
+| GET | `/api/customers?query={nameOrId}` | Tìm theo mã hoặc tên chuẩn hoá; `409` nếu trùng tên |
+| GET | `/api/customers/{customerId}/interactions?limit=5` | Tương tác mới nhất trước, `limit` 1–20 |
+| GET | `/api/customers/{customerId}/opportunities?status=Open&limit=5` | Cơ hội bán, lọc trước khi cắt |
+| GET | `/api/customers/{customerId}/campaigns?limit=5` | Chiến dịch khách hàng thuộc diện tham gia |
+
+---
+
+## 10. Hướng dẫn sử dụng
+
+### Giao diện
+
+Trang tại `http://localhost:5081` gồm khung chat cùng các panel chỉ hiện khi lượt đó thực sự có dữ liệu:
+
+| Panel | Hiện khi |
+| --- | --- |
+| **Khách hàng** | `get_customer` thành công |
+| **Nhiều khách hàng trùng tên** | Kết quả `ambiguous` — chọn đúng mã rồi hỏi lại |
+| **Tương tác gần đây** | `get_interactions` thành công |
+| **Cơ hội bán** | `get_opportunities` thành công |
+| **Chiến dịch** | `get_campaigns` thành công |
+| **Kịch bản gọi** | `generate_call_script` thành công (mở đầu, câu hỏi khai thác, điểm trao đổi chính, xử lý từ chối, kết thúc) |
+| **Email nháp** | `generate_email` thành công (tiêu đề, nội dung, nhãn cần duyệt, source chip) |
+| **Tool trace & sources** | Luôn có sau mỗi lượt — accordion thu gọn |
+
+Nút **New conversation** gọi `DELETE /api/chat/sessions/{sessionId}`, xoá state phía server rồi sinh
+`sessionId` mới ở trình duyệt. Trong lúc một request đang chạy, ô nhập và cả hai nút đều bị khoá để
+tránh gửi trùng và tránh tranh chấp giữa reset với lượt chat đang bay.
+
+### Đọc tool trace và source chip
+
+Mỗi dòng trong tool trace là **một lần gọi MCP thật**: tên tool, `status`, `traceId`, thời gian (ms).
+Source chip là `sourceIds` của lượt đó — mỗi chip là một bằng chứng có thể lần ngược:
+
+| Tiền tố | Nghĩa |
+| --- | --- |
+| `crm:customer:CUS-0001` | Hồ sơ khách hàng |
+| `crm:interaction:INT-0001` | Một tương tác |
+| `crm:opportunity:OPP-0002` | Một cơ hội bán |
+| `crm:campaign:CMP-0001` | Một chiến dịch |
+| `kb:product:PRD-SAV-006M` | Tài liệu sản phẩm |
+| `kb:email-template:TPL-EMAIL-…` | Mẫu email |
+| `kb:call-script:…` | Playbook kịch bản gọi |
+
+Source chip của bản nháp **chỉ chứa nguồn mà bản nháp thật sự dùng** — không liệt kê mọi ứng viên đã
+truy xuất.
+
+### Quy tắc quan trọng khi dùng chat
+
+**Luôn tham chiếu khách hàng bằng mã (`CUS-0001`), không gõ tên đầy đủ.** Đây là hành vi có chủ đích:
+gõ tên thật vào chat là một đường rò PII, nên `InputGuard` từ chối trước khi bất kỳ dữ liệu nào rời máy.
+
+### Gọi API trực tiếp
+
+```powershell
 $sessionId = [guid]::NewGuid().ToString()
 
-# 2) get_customer thật
-Invoke-RestMethod -Method Post http://localhost:5081/api/chat -Body (@{message="Tìm khách hàng CUS-0001"; sessionId=$sessionId} | ConvertTo-Json) -ContentType "application/json"
-# kỳ vọng: toolTrace có get_customer/success, data.customer.id == "CUS-0001"
+Invoke-RestMethod -Method Post http://localhost:5081/api/chat `
+  -Body (@{ message = "Tìm hồ sơ khách hàng CUS-0001."; sessionId = $sessionId } | ConvertTo-Json) `
+  -ContentType "application/json"
 
-# 3) get_interactions thật
-Invoke-RestMethod -Method Post http://localhost:5081/api/chat -Body (@{message="Xem các tương tác gần đây của CUS-0001"; sessionId=$sessionId} | ConvertTo-Json) -ContentType "application/json"
-# kỳ vọng: toolTrace có get_interactions/success, data.interactions không rỗng
-
-# 4) search_product_knowledge thật, dùng đúng collection vừa ingest
-Invoke-RestMethod -Method Post http://localhost:5081/api/chat -Body (@{message="Khách hàng CUS-0001 quan tâm gửi tiết kiệm, gợi ý sản phẩm phù hợp"; sessionId=$sessionId} | ConvertTo-Json) -ContentType "application/json"
-# kỳ vọng: toolTrace có search_product_knowledge/success, sourceIds chứa kb:product:PRD-SAV-006M
-```
-
-Ghi lại `toolTrace` đầy đủ (tool name/status/traceId/durationMs) của cả 3 bước làm evidence — không dùng `curl` thô cho `/api/chat` (JSON body cần đúng `Content-Type`).
-
-**Giới hạn đã biết:** heuristic CRM-intent (từ khóa + cụm tên viết hoa liên tiếp) là best-effort — có thể từ chối nhầm câu hỏi hợp lệ (chấp nhận được) và có thể bỏ sót một số cách diễn đạt tên hiếm gặp không kèm từ khóa/không viết hoa liên tiếp; loại bỏ hoàn toàn rủi ro này cần hạ tầng masking/NER thật của P0-07. RM nên tham chiếu khách hàng bằng mã (`CUS-0001`) trong chat, không gõ tên đầy đủ.
-
-### Conversation State (P0-06)
-
-Từ P0-06, `sessionId` (một chuỗi GUID hợp lệ) là **bắt buộc** trên mỗi request `/api/chat` — trình duyệt tự sinh một lần và gửi lại cho mọi lượt của cùng một phiên hội thoại; `sessionId` không bao giờ được server sinh ra. Thiếu, rỗng hoặc không phải GUID hợp lệ → `400 INVALID_ARGUMENT`.
-
-`CrmCopilot.Web` giữ một `IConversationStateStore` in-memory (`ConcurrentDictionary`, docs/02_ARCHITECTURE.md §6), theo đúng `sessionId`, ghi nhớ `CurrentCustomerId` cùng vài trường ngắn hạn khác (không phải transcript). Nhờ đó, sau khi một lượt đã tra cứu thành công một khách hàng (`get_customer`/`get_interactions`), lượt tiếp theo trong cùng phiên có thể dùng cụm như "khách hàng này" mà không cần lặp lại mã khách hàng — Host tự điền `customerId` đã lưu vào tool call trước khi gọi MCP (MCP Server vẫn stateless, luôn nhận `customerId` explicit, không đổi so với P0-04/P0-05). Nếu chưa có khách hàng nào được xác lập trong phiên, một câu hỏi kiểu "khách hàng này" sẽ bị từ chối với `400 CUSTOMER_ID_REQUIRED` thay vì đoán mò.
-
-Reset một phiên (xoá `CurrentCustomerId` và lịch sử ngắn hạn đã lưu, dùng cho tính năng "New conversation" ở P0-08 sau này):
-
-```powershell
+# Reset phiên — luôn trả 204, kể cả khi phiên chưa từng tồn tại
 Invoke-RestMethod -Method Delete "http://localhost:5081/api/chat/sessions/$sessionId"
 ```
 
-Luôn trả `204 No Content` (idempotent) nếu `sessionId` là GUID hợp lệ, kể cả khi phiên đó chưa từng tồn tại; `400 INVALID_ARGUMENT` nếu `sessionId` không phải GUID hợp lệ.
+`sessionId` là **bắt buộc** ở mọi request và do phía client sinh — server không bao giờ tự cấp. Dùng
+lại cùng một `sessionId` để giữ ngữ cảnh qua nhiều lượt.
 
-**Giới hạn đã biết:**
-- Restart `CrmCopilot.Web` sẽ mất toàn bộ conversation state (in-memory, chấp nhận được ở MVP — xem docs/02 §6, docs/11 Q&A).
-- Không có TTL/idle-expiry cho một session; một `sessionId` hợp lệ dù bị từ chối ngay từ `InputGuard` (vd. do PII) vẫn tạo một entry rỗng trong store cho đến khi restart hoặc bị `DELETE` tường minh.
-- Gọi `DELETE /api/chat/sessions/{sessionId}` đồng thời với một request `/api/chat` đang chạy cho cùng `sessionId` là một race chấp nhận được ở P0-06 (không có khoá đồng bộ) — UI P0-08 cần tự vô hiệu hoá nút Reset/"New conversation" trong khi đang có request chat cho phiên đó.
-- `RecentSanitizedMessages` chỉ chống được ba dạng PII cơ học mà `InputGuard` đã nhận diện (email/số điện thoại kiểu VN/chuỗi 9+ chữ số) trước khi lưu — đây là lớp phòng thủ bổ sung (defense-in-depth), không phải bộ phát hiện PII toàn diện.
+Không dùng `curl` thô cho `/mcp`: đó là JSON-RPC trên Streamable HTTP, cần đúng header `Accept`. Hãy
+dùng một MCP client thật (`McpClient` + `HttpClientTransport`, hoặc MCP Inspector).
 
-### Web UI + Trace + Sources (P0-08)
+---
 
-`CrmCopilot.Web` phục vụ một trang Razor tối thiểu tại `http://localhost:5081/` (`Pages/Index.cshtml` + `wwwroot/js/app.js` + `wwwroot/css/app.css`, vanilla JS, không framework frontend). Trang gồm: ô nhập tiếng Việt, khung chat, customer card, danh sách candidate khi trùng tên, danh sách interaction, panel email nháp (subject/body/nhãn cần duyệt/source chips), accordion "Tool trace & sources", và nút "New conversation".
+## 11. Ví dụ câu hỏi
 
-Trình duyệt tự sinh `sessionId` (GUID) một lần và gửi lại ở mọi lượt; nút "New conversation" gọi `DELETE /api/chat/sessions/{sessionId}` rồi sinh `sessionId` mới.
+### Câu hỏi chạy được
 
-Hai control an toàn của UI:
+Dùng cùng một phiên, hỏi lần lượt từ trên xuống để thấy conversation state hoạt động:
 
-- **Không dùng `innerHTML` với bất kỳ giá trị nội suy nào** — toàn bộ nội dung do model/CRM sinh ra được gán qua `textContent` (`wwwroot/js/app.js:53`), nên output của model không thể trở thành HTML thực thi được.
-- **Khoá thao tác khi đang xử lý** — nút Gửi, nút "New conversation" và ô nhập đều bị `disabled` trong lúc có request đang chạy (`wwwroot/js/app.js:115-117`), chặn double-submit và chặn race giữa reset và một lượt chat đang bay (giới hạn mà P0-06 đã nêu).
+| # | Câu hỏi | Tool | Kết quả |
+| --- | --- | --- | --- |
+| 1 | Tìm hồ sơ khách hàng CUS-0001. | `get_customer` | Panel Khách hàng |
+| 2 | Khách hàng này có những tương tác gần nhất nào? | `get_interactions` | Tương tác, mới nhất trước |
+| 3 | Khách hàng này đang có cơ hội bán nào? | `get_opportunities` | Panel Cơ hội bán |
+| 4 | Chỉ lấy các cơ hội đang mở thôi. | `get_opportunities` | Lọc `status = Open` |
+| 5 | Khách hàng này thuộc chiến dịch nào? | `get_campaigns` | Panel Chiến dịch |
+| 6 | Có sản phẩm tiết kiệm kỳ hạn 6 tháng nào phù hợp không? | `search_product_knowledge` | Câu trả lời có căn cứ + source chip |
+| 7 | Soạn email follow-up ngắn gọn, chuyên nghiệp và thân thiện về nhu cầu gửi tiết kiệm 6 tháng cho khách hàng này. | `generate_email` | Email nháp + nhãn cần RM duyệt |
+| 8 | Soạn kịch bản gọi điện follow-up cho khách hàng này về gói tiết kiệm 6 tháng. | `generate_call_script` | Kịch bản gọi + nhãn cần RM duyệt |
+| 9 | Tìm khách hàng CUS-9999. | `get_customer` | `404 NOT_FOUND` — không bịa hồ sơ |
 
-Từ P0-08, một tool "kết thúc lượt" (`get_customer`/`get_interactions`/`generate_email`) thành công sẽ kết thúc lượt ngay và reply do Host render deterministic — không hỏi Gemini thêm một lần nữa để viết câu trả lời.
+Câu 7 và 8 minh hoạ việc Host **bỏ argument model bịa ra**: nếu Gemini điền `productCode` bằng cụm chữ
+"gửi tiết kiệm 6 tháng" thay vì một mã sản phẩm, Host bỏ giá trị đó và gấp cụm chữ vào `objective` —
+để chính bước RAG (thành phần thật sự biết danh mục sản phẩm) phân giải nó.
 
-### Acceptance & Demo (P0-09)
+### Câu bị từ chối — có chủ đích, không phải lỗi
 
-Bộ 8 scenario nội bộ của `docs/03_ACCEPTANCE_CRITERIA.md` §6 nằm ở `tests/CrmCopilot.Tests/Acceptance/`.
+| Câu hỏi | Kết quả | Vì sao |
+| --- | --- | --- |
+| `Gửi email tới minh.anh@example.test` | `400 PII_REJECTED` | Email trong chat là đường rò PII |
+| `Số điện thoại khách là 0900000001, kiểm tra giúp` | `400 PII_REJECTED` | Số điện thoại, tương tự trên |
+| `Tìm khách hàng Nguyễn Minh Anh` | `400 CUSTOMER_ID_REQUIRED` | Tên đầy đủ trong chat là đường rò PII — dùng mã |
+| `Tìm khách hàng CS-0002` | `400 CUSTOMER_ID_INVALID` | Sai định dạng; hệ thống **không** tự sửa thành mã hợp lệ |
+| `Khách hàng này có tương tác nào?` ở **phiên mới** | `400 CUSTOMER_ID_REQUIRED` | Chưa có khách hàng nào trong phiên — hỏi lại còn hơn đoán |
+
+Tra cứu theo tên **vẫn hoạt động ở tầng MCP tool** (`get_customer` với tham số `query`, có xử lý trùng
+tên bằng `ambiguous`). Chỉ khung chat mới chặn, và chặn có chủ đích.
+
+---
+
+## 12. Kiểm thử
+
+Bộ test mặc định chạy **hoàn toàn offline** — Gemini và Chroma đều là fake, không cần API key:
 
 ```powershell
-# Lớp D (deterministic, offline) — chạy cả 8 scenario và sinh report
+# Toàn bộ
+dotnet test tests/CrmCopilot.Tests/CrmCopilot.Tests.csproj --no-build --no-restore
+
+# Bộ 8 scenario nghiệm thu (sinh báo cáo vào TestResults/)
 dotnet test tests/CrmCopilot.Tests/CrmCopilot.Tests.csproj --no-build --no-restore `
   --filter-class "CrmCopilot.Tests.Acceptance.AcceptanceScenarioTests"
 ```
 
-Kết quả ghi ra `TestResults/acceptance-scenarios-offline.md` (đã bị `.gitignore` chặn): bảng 8 dòng kèm `ScenarioAccuracy X/8`, dòng `Quality target 8/8: MET | NOT MET`, và toàn bộ check của từng scenario. Bản tường thuật được commit là `docs/14_ACCEPTANCE_SCENARIO_REPORT.md`.
+Dự án dùng **Microsoft.Testing.Platform** (khai báo trong `global.json`), không phải VSTest — các option
+`--filter-class` / `--filter-method` / `--filter-namespace` là option gốc của `dotnet test`, truyền
+thẳng, **không** qua dấu `--`.
 
-Vài điểm về thiết kế của bộ này, cần biết trước khi đọc kết quả:
+### Ba lớp evidence — không thay thế lẫn nhau
 
-- **Ngưỡng pass là `≥7/8`**, đúng như `docs/03` §6 đã khóa — không phải 8/8. `8/8` được in ra như quality target, không phải pass condition.
-- **`Fail` khác `Error`.** `Fail` = scenario đã được đánh giá và có check không đạt (tính vào `X/8`). `Error` = không đánh giá được (harness/transport hỏng) và làm test fail **độc lập** với ngưỡng 7/8 — một scenario không đo được thì con số `X/8` không còn ý nghĩa.
-- **T02/T03 được đánh giá ở MCP tool boundary**, không qua `/api/chat`. `InputGuard` (quyết định D7 của P0-05, `src/CrmCopilot.Web/Chat/InputGuard.cs`) **cố ý** từ chối message chứa cụm tên viết hoa liên tiếp mà không kèm `CUS-####`. Chạy hai scenario tra cứu-theo-tên qua chat sẽ fail *đúng theo thiết kế*, nên chúng được đo ở tầng tool — không nới `InputGuard` để "cho pass".
-- Scenario dùng `DatasetCrmGateway`: dataset thật đã checked-in + logic search thật của P0-02, nên T02/T03/T05 kiểm chứng hành vi hệ thống chứ không kiểm chứng setup của chính test.
+| Lớp | Là gì | Chứng minh được | Không chứng minh được |
+| --- | --- | --- | --- |
+| **D** — offline xác định | MCP protocol thật in-memory, Gemini/CRM là fake | Contract, mã lỗi, phân giải theo state, cô lập phiên, PII gate, thứ tự/limit | Bất cứ điều gì về model thật hoặc ranking truy xuất thật |
+| **L** — live gate (opt-in) | Gemini thật + Chroma thật + Mock CRM thật | Grounding thật, PII thật không rời máy | Trải nghiệm UI |
+| **B** — browser demo | Chạy tay qua `http://localhost:5081` | Luồng đầu-cuối, trace/source hiển thị, độ ổn định | Assertion máy móc |
 
-#### Lớp L — live gate (opt-in)
+Ngưỡng đã khoá của bộ 8 scenario là **≥ 7/8**. `8/8` là mục tiêu chất lượng, không phải điều kiện pass.
 
-Live test **không bao giờ** chạy trong bộ mặc định. Chúng dùng `[Fact(SkipUnless = ...)]`, nên thiếu
-credential thì báo **Skipped** — và Skipped **không bao giờ** được tính là PASS: một live gate chưa
-chạy giới hạn checkpoint ở mức PARTIAL, và kết quả offline không được mượn để thay thế.
+Hai scenario tra cứu theo tên được đo ở **tầng MCP tool**, không qua khung chat — vì `InputGuard` cố ý
+từ chối tên đầy đủ trong chat. Đó là control đã được duyệt, không phải khiếm khuyết.
 
-**Biến môi trường cần cho live tests:**
+### Live gate
 
-| Biến | Cần cho | Ví dụ |
-| --- | --- | --- |
-| `GEMINI_API_KEY` | tất cả live test | *(giá trị thật, chỉ trong session của bạn)* |
-| `CHROMA_BASE_URL` | tất cả live test | `http://localhost:8000` |
-| `MOCKCRM_API_BASE_URL` | live test có gọi CRM | `http://localhost:5100` |
-
-**Nhập `GEMINI_API_KEY` an toàn.** Không gõ thẳng key vào dòng lệnh (nó vào lịch sử shell), không
-commit và không paste vào chat/log. Dùng prompt ẩn:
-
-```powershell
-$env:GEMINI_API_KEY = (Read-Host -AsSecureString "GEMINI_API_KEY" |
-  ForEach-Object { [Runtime.InteropServices.Marshal]::PtrToStringBSTR(
-      [Runtime.InteropServices.Marshal]::SecureStringToBSTR($_)) })
-$env:CHROMA_BASE_URL = "http://localhost:8000"
-$env:MOCKCRM_API_BASE_URL = "http://localhost:5100"
-```
-
-Biến chỉ tồn tại trong session PowerShell hiện tại; đóng cửa sổ là mất.
-
-**Năm live test class:**
+Live test **không bao giờ** chạy trong bộ mặc định — chúng dùng `[Fact(SkipUnless = …)]` và chỉ bật khi
+có đủ `GEMINI_API_KEY` + `CHROMA_BASE_URL` (thêm `MOCKCRM_API_BASE_URL` cho test có gọi CRM).
 
 | Class | Chứng minh |
 | --- | --- |
-| `CrmCopilot.Tests.Knowledge.LiveRagAcceptanceTests` | Heartbeat, ingest toàn corpus, idempotency, canonical retrieval |
-| `CrmCopilot.Tests.Email.LiveEmailGenerationAcceptanceTests` | Email draft grounded thật, placeholder restore |
-| `CrmCopilot.Tests.CallScript.LiveCallScriptGenerationAcceptanceTests` | Call script grounded thật, tự seed collection, idempotency, luồng câu ngắn |
-| `CrmCopilot.Tests.Acceptance.LiveAcceptanceScenarioTests` | Scenario T07/T08 ở lớp L |
+| `Knowledge.LiveRagAcceptanceTests` | Heartbeat, ingest toàn corpus, idempotency, canonical retrieval |
+| `Email.LiveEmailGenerationAcceptanceTests` | Email draft grounded thật, khôi phục placeholder |
+| `CallScript.LiveCallScriptGenerationAcceptanceTests` | Kịch bản gọi grounded thật, tự seed collection |
+| `Acceptance.LiveAcceptanceScenarioTests` | Scenario T07/T08 ở lớp L |
 
-```powershell
-# Chạy toàn bộ live gate
-dotnet test tests/CrmCopilot.Tests/CrmCopilot.Tests.csproj --no-build --no-restore `
-  --filter-namespace "CrmCopilot.Tests" --filter-class "CrmCopilot.Tests.Acceptance.LiveAcceptanceScenarioTests"
-# ...và lần lượt các class còn lại bằng --filter-class tương ứng.
-```
+**`Skipped` không bao giờ được tính là PASS.** Một live gate chưa chạy thì kết quả offline không được
+mượn để thay thế.
 
-**Cô lập collection.** Mọi live test ghi vào collection riêng `crm-copilot-knowledge-livetest`, không
-bao giờ ghi vào collection dev mặc định `crm-copilot-knowledge`. `LiveRagAcceptanceTests` assert tên
-collection đã resolve **trước khi** ghi bất cứ gì, nên nếu `PostConfigure` ngừng tác dụng thì test
-dừng lại thay vì ghi nhầm.
+Mọi live test ghi vào collection riêng `crm-copilot-knowledge-livetest`, **không bao giờ** ghi vào
+collection mặc định. `LiveRagAcceptanceTests` assert tên collection đã phân giải **trước khi** ghi bất
+cứ gì. Nếu cần dọn, chỉ xoá đúng collection live-test — không đụng collection mặc định và không xoá
+Chroma volume.
 
-**Corpus expectation là thuộc tính, không phải con số.** Corpus hiện có 21 document, nhưng live RAG
-test **không** hard-code số đó — nó lấy kỳ vọng từ chính tập document nguồn rồi assert các thuộc
-tính: nguồn không rỗng; `sourceId` duy nhất; có đủ ba loại `Product`/`EmailTemplate`/`CallScript`;
-vector count khớp số document nguồn; lần ingest thứ hai `Embedded == 0` và toàn bộ được skip; vector
-count không tăng; canonical retrieval vẫn trả `kb:product:PRD-SAV-006M`. Nhờ vậy corpus lớn lên
-(14 → 21 ở P0-10) không làm test sai, trong khi document trùng hoặc loader trả rỗng vẫn bị bắt.
+Kỳ vọng về corpus được viết dưới dạng **thuộc tính, không phải con số cứng**: nguồn không rỗng,
+`sourceId` duy nhất, có đủ ba loại document, số vector khớp số document nguồn, lần ingest thứ hai
+`Embedded == 0`. Nhờ vậy corpus lớn lên không làm test sai, trong khi document trùng vẫn bị bắt.
 
-Nếu vector count **lớn hơn** số document nguồn, đó là vector cũ từ corpus trước còn sót (upsert theo
-id ổn định, không bao giờ xoá). Xử lý: drop **chỉ** collection `crm-copilot-knowledge-livetest` rồi
-chạy lại. Tuyệt đối không xoá collection mặc định và không xoá Chroma volume.
+---
 
-### Secret hygiene
+## 13. Giới hạn đã biết
 
-- `.env.example` chỉ là **configuration template** liệt kê tên biến môi trường cần thiết theo từng checkpoint (P0-02/P0-03/P0-05). Repo hiện **không có code hoặc package nào tự động đọc file `.env`** — copy `.env.example` thành `.env` (đã bị `.gitignore` chặn) chỉ tạo một bản ghi chú giá trị cục bộ cho riêng bạn; `dotnet run` sẽ **không** tự đọc được các giá trị đó.
-- Để `dotnet run` cục bộ thấy được giá trị, phải export thành environment variable thật trong session PowerShell trước khi chạy, ví dụ:
+- **Conversation state là in-memory.** Restart `CrmCopilot.Web` là mất toàn bộ phiên. Không có TTL,
+  không có idle-expiry.
+- **`InputGuard` là best-effort và cố ý thiên về từ chối nhầm.** Nó có thể chặn một câu hỏi hợp lệ; đó
+  là hướng thất bại được chấp nhận. Loại bỏ hoàn toàn rủi ro cần hạ tầng NER thật.
+- **Gọi trực tiếp MCP tool bỏ qua `InputGuard`.** Các tool ngoài `get_customer` khi nhận `customerId`
+  sai định dạng qua MCP trực tiếp sẽ trả `NOT_FOUND` thay vì `CUSTOMER_ID_INVALID`. Luồng qua trình
+  duyệt không bị ảnh hưởng vì Host đã chặn từ trước.
+- **Chưa có Docker Compose**, chưa có authentication/authorization mức production.
+- **Ngưỡng `MaxDistance` mặc định `1.2`** là điểm khởi đầu có lập luận; hiệu chỉnh bằng
+  `--query-knowledge` trên khoảng cách thật.
+- Nhánh `develop` **chưa** được merge vào `main`, và hai nhánh đã phân kỳ.
 
-  ```powershell
-  $env:MOCKCRM_API_BASE_URL = "http://localhost:5100"
-  dotnet run --project src/CrmCopilot.McpServer --launch-profile http --no-build
-  ```
+Verdict, blocker và verification debt chi tiết nằm ở `docs/CHECKPOINT_STATUS.md`.
 
-- `.env` sẽ chỉ thực sự được một cơ chế nào đó nạp khi repo bổ sung Docker Compose (`--env-file .env`) hoặc một dotenv loader thật (chưa có ở P0-02) — README sẽ cập nhật lại mục này khi đó.
-- Không commit `.env`, `secrets.json`, `appsettings.Development.json`.
+---
 
+## 14. Bản đồ tài liệu
+
+| File | Nội dung |
+| --- | --- |
+| `CLAUDE.md` | Quy tắc bắt buộc khi làm việc trong repo |
+| `docs/01_PROJECT_DECISIONS.md` | Các quyết định kiến trúc/phạm vi đã khoá |
+| `docs/02_ARCHITECTURE.md` | Thành phần, luồng dữ liệu, ownership, trust boundary |
+| `docs/03_ACCEPTANCE_CRITERIA.md` | Tiêu chí pass/fail và 8 test scenario |
+| `docs/04_P0_CHECKPOINTS.md` | Chia P0 thành checkpoint có gate |
+| `docs/05_IMPLEMENTATION_PLAN_9_DAYS.md` | Lịch triển khai |
+| `docs/06_DATA_AND_MOCK_API_SPEC.md` | Dataset, schema, endpoint, adapter |
+| `docs/07_MCP_TOOL_CONTRACTS.md` | Contract tool và lỗi chuẩn hoá |
+| `docs/08_RAG_EMAIL_AND_PII_SPEC.md` | Ingestion, retrieval, sinh email, masking |
+| `docs/09_CLAUDE_WORKFLOW_GUIDE.md` | Quy trình làm việc |
+| `docs/10_CLAUDE_PROMPTS.md` | Prompt mẫu theo checkpoint |
+| `docs/11_DEMO_RUNBOOK.md` | Kịch bản demo, fallback, checklist |
+| `docs/12_POST_MVP_AND_INTEGRATION.md` | Hướng mở rộng sau MVP |
+| `docs/13_REFERENCE_SOURCES.md` | Nguồn chính thức và ngày kiểm chứng |
+| `docs/14_ACCEPTANCE_SCENARIO_REPORT.md` | Kết quả 8 scenario theo từng lớp evidence |
+| `docs/CHECKPOINT_STATUS.md` | Sổ trạng thái, evidence, blocker, quyết định review |

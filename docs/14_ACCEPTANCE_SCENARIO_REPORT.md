@@ -29,7 +29,8 @@ báo **Skipped** thì ghi `NOT RUN`, **không** ghi PASS và **không** mượn 
 ## 2. Kết quả lớp D (deterministic offline)
 
 - Ngày chạy gần nhất: **2026-08-26** trên `feature/p0-10-complete-mcp-tool-list` (base `c7bcbd6`,
-  thay đổi chưa commit) — chạy lại sau khi P0-10 thêm 3 MCP tool, để chứng minh không regression.
+  nội dung nay là commit `fd40e87`, đã merged vào `develop` @ `6bbb209` qua PR #15) — chạy lại sau
+  khi P0-10 thêm 3 MCP tool, để chứng minh không regression.
   Lần chạy đầu tiên của bộ này là 2026-08-25 trên `feature/p0-09-deployment-readiness` (base
   `a91c041`), cũng cho 8/8.
 - Lệnh: `dotnet test tests/CrmCopilot.Tests/CrmCopilot.Tests.csproj --no-build --no-restore --filter-class "CrmCopilot.Tests.Acceptance.AcceptanceScenarioTests"`
@@ -80,7 +81,8 @@ nới `InputGuard` để lấy điểm. RM vẫn nên tham chiếu khách hàng 
 
 ## 4. Kết quả lớp L (live gate)
 
-- Ngày chạy: **2026-08-26** (trên `feature/p0-10-complete-mcp-tool-list`, thay đổi chưa commit)
+- Ngày chạy: **2026-08-26** (trên `feature/p0-10-complete-mcp-tool-list`, nội dung nay là commit
+  `fd40e87`, đã merged vào `develop` @ `6bbb209` qua PR #15)
 - Điều kiện: `GEMINI_API_KEY` thật (chỉ nằm trong terminal của Product Owner, không đọc/in/ghi log ở
   bất kỳ đâu), Chroma + MockCrmApi + McpServer + Web đang chạy
 - Health preflight **4/4 HTTP 200**: `:5100/health`, `:5090/health`, `:5081/health`,
@@ -177,5 +179,16 @@ Verdict cuối chỉ là **PASS** khi đồng thời: build sạch; offline suit
 3 browser run PASS liên tiếp; secret scan sạch; tài liệu đã đồng bộ.
 
 Tính tới 2026-08-26, mọi điều kiện trên đã có evidence (xem row P0-10 ở `docs/CHECKPOINT_STATUS.md`
-§1). Trạng thái checkpoint vì vậy là **READY_FOR_FINAL_REVIEW** — evidence đầy đủ, **chưa** có final
-review độc lập. Tài liệu này **không** tự tuyên bố PASS; verdict thuộc về reviewer.
+§1). Tài liệu này **không** tự tuyên bố PASS; verdict thuộc về reviewer.
+
+**Cập nhật trạng thái 2026-08-26:** code của P0-10 đã được merge vào `develop` qua PR #15
+(`fd40e87` → merge `6bbb209`) **trước** khi có final review verdict; khoảng trống quy trình đó được
+ghi nhận bằng blocker **B-05** ở `docs/CHECKPOINT_STATUS.md` §4. Cùng ngày, Product Owner chấm
+verdict **PASS** trong lượt review **sau-merge**, và B-05 đã đóng. Trạng thái checkpoint là **DONE
+(PASS)**, không còn là `READY_FOR_FINAL_REVIEW`. Không con số nào ở §2/§4/§5 thay đổi theo cập nhật
+này — verdict dựa trên chính những con số đó.
+
+Cùng lượt review, Product Owner quyết định thêm hai điều được ghi ở `docs/CHECKPOINT_STATUS.md`:
+**B-04** (P0-08 không có verdict gốc) đóng bằng evidence hồi quy của báo cáo này — lớp L 5/5 và lớp B
+3/3 — và **KL-01** được trả một phần: **C5 + C6 đã trả**, **C8 (runtime-log PII scan) giữ lại** vì
+báo cáo này không chứa evidence nào cho nó.
