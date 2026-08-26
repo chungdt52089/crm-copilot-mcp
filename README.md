@@ -12,7 +12,53 @@ luôn gắn cờ `requiresHumanApproval = true` để RM duyệt.
 
 ---
 
-## 1. Dự án này chứng minh điều gì
+## 1. Bối cảnh — RM đang mất thời gian vào đâu
+
+Một Relationship Manager (RM) ngân hàng bán lẻ phụ trách **50–80 khách hàng mỗi ngày**. Phần lớn thời
+gian của họ không nằm ở tư vấn hay bán hàng, mà ở thao tác tra cứu và soạn thảo lặp đi lặp lại:
+khoảng **2–3 giờ mỗi ca**, tương đương **25–37%** thời gian làm việc.
+
+Để chuẩn bị cho **một** cuộc gọi hay **một** email, RM phải tự đi hết chuỗi thao tác này:
+
+| Bước thủ công | RM phải tự làm gì |
+| --- | --- |
+| Mở hồ sơ khách hàng → mở lịch sử tương tác → mở danh sách cơ hội bán | Chuyển qua lại giữa những màn hình rời rạc |
+| Ghép các mẩu thông tin vừa đọc lại với nhau | Tự tổng hợp trong đầu, không công cụ nào làm hộ |
+| Viết email hoặc kịch bản gọi | Bắt đầu từ trang trắng, mỗi lần một kiểu |
+
+Gốc rễ không nằm ở kỹ năng của RM hay tốc độ của CRM. CRM được thiết kế để **lưu trữ** dữ liệu chuẩn
+xác (*system of record*) và nó làm tốt việc đó — nhưng công việc hằng ngày của RM lại cần một thứ
+khác: một hệ thống biết **nối các mẩu dữ liệu thành hành động** (*system of intelligence*). Phần
+"nối" đó hiện do con người gánh, và nó không co giãn được khi số khách hàng tăng lên.
+
+Hướng giải quyết vì thế không phải là thay CRM, mà là đặt thêm **một lớp co-pilot** phía trên: RM hỏi
+bằng tiếng Việt như nói với đồng nghiệp, hệ thống tự chọn đúng công cụ CRM để gọi, tự tổng hợp, tự
+soạn bản nháp — quyền quyết định cuối cùng vẫn thuộc về RM.
+
+---
+
+## 2. Dự án này demo phần nào của bài toán
+
+Bài toán đầy đủ rộng hơn nhiều những gì repo này làm. Đây là **một lát cắt được thu hẹp có chủ đích**,
+và trọng tâm của nó là **MCP (Model Context Protocol)**: làm sao để một AI Host **khám phá** được
+những công cụ CRM đang có (`tools/list`), **chọn đúng** công cụ cho câu hỏi của người dùng, **gọi** nó
+qua một giao thức chuẩn (`tools/call`), và **giữ ngữ cảnh** qua nhiều lượt hội thoại.
+
+RAG, PII masking và sinh nội dung có mặt ở đây để MCP có việc thật để làm trên dữ liệu thật — chúng là
+bối cảnh xung quanh, không phải thứ được trình diễn riêng.
+
+Cụ thể, với một RM, bản demo này làm được bốn việc:
+
+1. **Tra cứu 360° một khách hàng** — hồ sơ, lịch sử tương tác, cơ hội bán, chiến dịch.
+2. **Hỏi tiếp bằng "khách hàng này"** mà không phải nhắc lại mã khách hàng ở mỗi lượt.
+3. **Tra kiến thức sản phẩm** bằng semantic search thay vì lật tài liệu.
+4. **Soạn nháp email và kịch bản gọi** có trích nguồn, và luôn cần RM duyệt.
+
+Ranh giới in-scope/out-of-scope đầy đủ nằm ở mục 3; những gì cố tình chưa làm nằm ở mục 13.
+
+---
+
+## 3. Dự án này chứng minh điều gì
 
 | # | Điều được chứng minh | Cách chứng minh trong code |
 | --- | --- | --- |
@@ -37,7 +83,7 @@ dữ liệu khách hàng thật ở bất kỳ đâu trong repo.
 
 ---
 
-## 2. Công nghệ sử dụng
+## 4. Công nghệ sử dụng
 
 | Lớp | Lựa chọn | Ghi chú |
 | --- | --- | --- |
@@ -55,7 +101,7 @@ dữ liệu khách hàng thật ở bất kỳ đâu trong repo.
 
 ---
 
-## 3. Kiến trúc
+## 5. Kiến trúc
 
 Bốn tiến trình chạy song song trên máy local, cộng Gemini API ở ngoài:
 
@@ -112,9 +158,9 @@ Bốn tiến trình chạy song song trên máy local, cộng Gemini API ở ngo
 
 ---
 
-## 4. Luồng làm việc của ứng dụng
+## 6. Luồng làm việc của ứng dụng
 
-### 4.1 Một lượt chat đi qua đâu
+### 6.1 Một lượt chat đi qua đâu
 
 ```text
 Trình duyệt: POST /api/chat { message, sessionId }
@@ -166,7 +212,7 @@ khách hàng, nội dung tương tác). Nếu vẫn bắt model viết prose v�
 bịa. Nên Host tự soạn câu trả lời, còn dữ liệu thật hiển thị ở panel có cấu trúc.
 `search_product_knowledge` là ngoại lệ vì nội dung của nó không chứa PII và được gửi nguyên vẹn.
 
-### 4.2 Tám kịch bản người dùng
+### 6.2 Tám kịch bản người dùng
 
 | Người dùng hỏi | Tool được chọn | Tool tự làm gì bên trong | `sourceIds` trả về | Panel hiển thị |
 | --- | --- | --- | --- | --- |
@@ -182,7 +228,7 @@ bịa. Nên Host tự soạn câu trả lời, còn dữ liệu thật hiển th
 > Hai tool sinh nội dung **tự truy xuất lấy bằng chứng của mình**. Không cần — và không nên — gọi
 > `search_product_knowledge` trước chúng: kết quả của lần gọi ngoài đó không bao giờ đến được bản nháp.
 
-### 4.3 Bảy MCP tool
+### 6.3 Bảy MCP tool
 
 Tất cả đều `ReadOnly = true`, `Destructive = false`. Không tool nào ghi dữ liệu.
 
@@ -214,7 +260,7 @@ tương ứng. `ambiguous` (trùng tên khách hàng) là **kết quả có th�
 `search_product_knowledge` **không** tìm được call-script playbook: chúng nằm chung collection nhưng
 nằm ngoài contract của tool này, chỉ `generate_call_script` mới truy xuất tới.
 
-### 4.4 Mã lỗi và HTTP status của `/api/chat`
+### 6.4 Mã lỗi và HTTP status của `/api/chat`
 
 | HTTP | Mã lỗi | Nghĩa |
 | --- | --- | --- |
@@ -234,7 +280,7 @@ nằm ngoài contract của tool này, chỉ `generate_call_script` mới truy x
 Thông điệp hiển thị cho RM luôn là tiếng Việt an toàn — không lộ regex, quy ước định dạng, tên
 validator hay stack trace, kể cả khi mã lỗi nội bộ chi tiết hơn.
 
-### 4.5 PII và an toàn
+### 6.5 PII và an toàn
 
 **Ba cơ chế masking** trước khi bất kỳ nội dung nào tới Gemini:
 
@@ -259,7 +305,7 @@ Các bảo đảm khác:
 
 ---
 
-## 5. Cấu trúc thư mục
+## 7. Cấu trúc thư mục
 
 ```text
 CrmCopilot/
@@ -320,7 +366,7 @@ CrmCopilot/
 
 ---
 
-## 6. Yêu cầu hệ thống
+## 8. Yêu cầu hệ thống
 
 | Thành phần | Yêu cầu |
 | --- | --- |
@@ -333,7 +379,7 @@ CrmCopilot/
 
 ---
 
-## 7. Cài đặt và chạy
+## 9. Cài đặt và chạy
 
 ### Bước 1 — Restore và build
 
@@ -469,7 +515,7 @@ Không tham số sẽ tái tạo đúng dataset đang được commit.
 
 ---
 
-## 8. Hướng dẫn sử dụng
+## 10. Hướng dẫn sử dụng
 
 ### Giao diện
 
@@ -534,7 +580,7 @@ dùng một MCP client thật (`McpClient` + `HttpClientTransport`, hoặc MCP I
 
 ---
 
-## 9. Ví dụ câu hỏi
+## 11. Ví dụ câu hỏi
 
 ### Câu hỏi chạy được
 
@@ -571,7 +617,7 @@ tên bằng `ambiguous`). Chỉ khung chat mới chặn, và chặn có chủ đ
 
 ---
 
-## 10. Kiểm thử
+## 12. Kiểm thử
 
 Bộ test mặc định chạy **hoàn toàn offline** — Gemini và Chroma đều là fake, không cần API key:
 
@@ -627,7 +673,7 @@ Kỳ vọng về corpus được viết dưới dạng **thuộc tính, không p
 
 ---
 
-## 11. Giới hạn đã biết
+## 13. Giới hạn đã biết
 
 - **Conversation state là in-memory.** Restart `CrmCopilot.Web` là mất toàn bộ phiên. Không có TTL,
   không có idle-expiry.
@@ -645,7 +691,7 @@ Verdict, blocker và verification debt chi tiết nằm ở `docs/CHECKPOINT_STA
 
 ---
 
-## 12. Bản đồ tài liệu
+## 14. Bản đồ tài liệu
 
 | File | Nội dung |
 | --- | --- |
