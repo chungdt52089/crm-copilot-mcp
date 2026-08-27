@@ -1,0 +1,137 @@
+# CRM Copilot MVP — local Docker stack (P0-09 Pha B).
+#
+# Start:    docker compose up -d --build
+# Ingest:   docker compose --profile ingest run --rm ingest    (needs GEMINI_API_KEY)
+# Stop:     docker compose down          (keeps the Chroma volume)
+# Reset:    docker compose down -v       (drops this stack's Chroma volume only)
+#
+# GEMINI_API_KEY is the only secret and is injected at runtime only — never
+# baked into an image. Compose reads it from the shell environment or from the
+# git-ignored .env at the repo root.
+#
+# NOTE: `env_file: .env` is deliberately NOT used. The repo's .env carries
+# host-side values (CHROMA_BASE_URL=http://localhost:8000) meant for the
+# `dotnet run` workflow; injecting those into a container would point it at its
+# own loopback and break RAG. Every service-to-service URL below is therefore
+# hard-coded to a compose service name.
+#
+# Host ports match the `dotnet run` workflow exactly (5081/5090/5100/8000) so
+# README §9 Bước 6 and docs/11_DEMO_RUNBOOK.md preflight work unchanged. That
+# also means the two workflows are mutually exclusive — see README §9B.
+
+name: crm-copilot
+
+# Neither the chromadb nor the aspnet base image ships curl, wget or python;
+# both ship bash, so readiness is probed over bash's /dev/tcp pseudo-device.
+# Exit status is driven by the HTTP status line, not merely by the port opening.
+x-dotnet-healthcheck: &dotnet-healthcheck
+  test:
+    - CMD
+    - bash
+    - -c
+    - 'exec 3<>/dev/tcp/localhost/8080; printf "GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3; head -1 <&3 | grep -q "200 OK"'
+  interval: 5s
+  timeout: 5s
+  retries: 20
+  start_period: 10s
+
+services:
+  # Vector store. Image pinned to the frozen baseline in
+  # docs/CHECKPOINT_STATUS.md §2 (chromadb/chroma:1.5.9, metric l2).
+  chroma:
+    image: chromadb/chroma:1.5.9
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - chroma-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -c
+        - 'exec 3<>/dev/tcp/localhost/8000; printf "GET /api/v2/heartbeat HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3; head -1 <&3 | grep -q "200 OK"'
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # Synthetic CRM data over HTTP. Requires no environment variables at all.
+  mockcrmapi:
+    build:
+      context: .
+      dockerfile: src/CrmCopilot.MockCrmApi/Dockerfile
+    image: crm-copilot-mockcrmapi:local
+    ports:
+      - "127.0.0.1:5100:8080"
+    healthcheck: *dotnet-healthcheck
+
+  # MCP Server (Streamable HTTP at /mcp, stateless) + the 7 tools.
+  # All three variables below are ValidateOnStart-required: a missing or blank
+  # one crash-loops the container instead of running degraded.
+  mcpserver:
+    build:
+      context: .
+      dockerfile: src/CrmCopilot.McpServer/Dockerfile
+    image: crm-copilot-mcpserver:local
+    environment:
+      MOCKCRM_API_BASE_URL: http://mockcrmapi:8080
+      CHROMA_BASE_URL: http://chroma:8000
+      CHROMA_COLLECTION_NAME: ${CHROMA_COLLECTION_NAME:-crm-copilot-knowledge}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?GEMINI_API_KEY is required — export it or put it in .env}
+    depends_on:
+      mockcrmapi:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:5090:8080"
+    healthcheck: *dotnet-healthcheck
+
+  # AI Host + MCP Client + UI. Browser entry point.
+  # The MCP handshake is lazy (McpClientProvider), so depends_on here only
+  # removes the MCP_UNAVAILABLE window on the very first chat turn.
+  web:
+    build:
+      context: .
+      dockerfile: src/CrmCopilot.Web/Dockerfile
+    image: crm-copilot-web:local
+    environment:
+      MCPSERVER_BASE_URL: http://mcpserver:8080
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?GEMINI_API_KEY is required — export it or put it in .env}
+    depends_on:
+      mcpserver:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:5081:8080"
+    healthcheck: *dotnet-healthcheck
+
+  # One-shot knowledge ingestion. Profile-gated so a plain `up` never spends
+  # Gemini embedding calls; the CLI verb is idempotent, so re-running it on
+  # unchanged sources reports 0 embedded / 21 unchanged.
+  # Reuses the mcpserver image. MOCKCRM_API_BASE_URL is intentionally absent:
+  # the --ingest-knowledge branch returns before AddCrmGateway is registered.
+  ingest:
+    profiles:
+      - ingest
+    build:
+      context: .
+      dockerfile: src/CrmCopilot.McpServer/Dockerfile
+    image: crm-copilot-mcpserver:local
+    entrypoint:
+      - dotnet
+      - CrmCopilot.McpServer.dll
+      - --ingest-knowledge
+    environment:
+      CHROMA_BASE_URL: http://chroma:8000
+      CHROMA_COLLECTION_NAME: ${CHROMA_COLLECTION_NAME:-crm-copilot-knowledge}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?GEMINI_API_KEY is required — export it or put it in .env}
+    depends_on:
+      chroma:
+        condition: service_healthy
+    restart: "no"
+
+volumes:
+  # Managed by this stack. `docker compose down -v` drops only this volume; the
+  # crm-copilot-chroma-data volume used by the `dotnet run` workflow is a
+  # separate volume and is never touched here.
+  chroma-data:
