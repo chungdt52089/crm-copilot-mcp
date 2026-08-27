@@ -26,7 +26,7 @@ CrmCopilot/
 ├── CrmCopilot.slnx
 ├── CLAUDE.md
 ├── README.md
-├── compose.yaml                  # chỉ thêm khi core local đã ổn định
+├── compose.yaml                  # đã thêm ở P0-09 Pha B (4 service + job ingest)
 ├── .env.example
 ├── docs/
 ├── data/
@@ -187,6 +187,8 @@ flowchart LR
 ### Docker bonus
 
 Khi P0 local pass, có thể thêm Dockerfile cho ba service và `compose.yaml`. Chroma là service thứ tư với persistent volume. Không coi Docker là pass condition của core MVP.
+
+**Đã triển khai (P0-09 Pha B).** `compose.yaml` ở repo root dựng bốn service — `web`, `mcpserver`, `mockcrmapi`, `chroma` — cộng một job `ingest` chạy một lần, đặt sau profile `ingest` để `up` thường ngày không tốn Gemini API call. Mỗi service .NET có multi-stage Dockerfile riêng trong thư mục project của nó, chạy non-root (`APP_UID=1654`), build context là repo root vì csproj glob vào `data/`. Service-to-service dùng compose service name (`http://mockcrmapi:8080`, `http://chroma:8000`, `http://mcpserver:8080`), không dùng `localhost`. Port phía host giữ nguyên `5081/5090/5100/8000` nên preflight ở `docs/11_DEMO_RUNBOOK.md` chạy không cần sửa. `GEMINI_API_KEY` chỉ inject lúc runtime, không bake vào image. Chi tiết vận hành ở README §9B; Docker vẫn **không** phải pass condition của core MVP.
 
 ### Cloud tối giản
 

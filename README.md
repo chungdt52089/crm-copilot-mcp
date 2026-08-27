@@ -76,7 +76,8 @@ Ranh giới in-scope/out-of-scope đầy đủ nằm ở mục 3; những gì c�
 | Chat tiếng Việt nhiều lượt, state trong bộ nhớ | Authentication/authorization mức production |
 | Sinh email nháp + kịch bản gọi nháp, có trích nguồn | Long-term memory, personalization qua nhiều phiên |
 | PII masking trước khi gọi LLM và trước khi ghi log | DLP/compliance review đạt chuẩn ngân hàng |
-| UI tối thiểu có tool trace và source chip | Docker Compose / triển khai cloud (**chưa có**) |
+| UI tối thiểu có tool trace và source chip | Triển khai cloud, Kubernetes (**chưa có**) |
+| Docker Compose chạy cả 4 service ở local | CI/CD, TLS termination, secret manager |
 
 Toàn bộ dữ liệu là **dữ liệu tổng hợp** (`synthetic: true`), sinh xác định từ seed cố định. Không có
 dữ liệu khách hàng thật ở bất kỳ đâu trong repo.
@@ -95,7 +96,7 @@ dữ liệu khách hàng thật ở bất kỳ đâu trong repo.
 | Vector store | **Chroma `chromadb/chroma:1.5.9`**, metric `l2` | Gọi qua HTTP API v2 (không có package .NET chính thức) |
 | Giao thức tool | **MCP** — `ModelContextProtocol` + `ModelContextProtocol.AspNetCore` **2.2.0** | Streamable HTTP, `HttpServerSessionMode.Stateless` |
 | Cơ sở dữ liệu | **Không có RDBMS/NoSQL** | Dữ liệu CRM là **file JSON tĩnh** trong `data/crm/`; conversation state là **in-memory** (`ConcurrentDictionary`); Chroma chỉ chứa vector knowledge |
-| Đóng gói | **Chưa có Docker Compose** | Chỉ Chroma chạy trong container; 3 service .NET chạy bằng `dotnet run` |
+| Đóng gói | **Docker Compose** (`compose.yaml`) — hoặc `dotnet run` như trước | Cả 4 service chạy container: multi-stage Dockerfile, non-root, secret inject lúc runtime. Hai lối chạy loại trừ nhau vì dùng chung port |
 | Kiểm thử | **xUnit v3 4.0.0** trên **Microsoft.Testing.Platform** | Bộ mặc định chạy **offline** hoàn toàn; test gọi Gemini/Chroma thật là opt-in |
 | Quản lý secret | **.NET User Secrets** (khuyến nghị) hoặc environment variable | Không có dotenv loader trong repo |
 
@@ -314,7 +315,9 @@ CrmCopilot/
 ├── CrmCopilot.slnx               # Solution (định dạng slnx)
 ├── global.json                   # Ghim .NET SDK 10.0.400 + runner Microsoft.Testing.Platform
 ├── Directory.Packages.props      # Central Package Management — mọi version ghim ở đây
-├── .env.example                  # Danh sách TÊN biến môi trường (KHÔNG được tự động nạp)
+├── .env.example                  # Danh sách TÊN biến môi trường (xem §9 về khi nào được nạp)
+├── compose.yaml                  # Stack Docker 4 service — xem §9B
+├── .dockerignore                 # Build context = repo root, nên loại trừ phải tường minh
 │
 ├── data/
 │   ├── crm/                      # Dataset CRM tổng hợp, seed 20260818
@@ -338,11 +341,13 @@ CrmCopilot/
 │   │   └── Pii/                  #   PiiPatterns (dùng chung Web và McpServer)
 │   │
 │   ├── CrmCopilot.MockCrmApi/    # REST đọc-only trên dataset JSON  (:5100)
+│   │   ├── Dockerfile            #   Multi-stage, non-root; build context là repo root
 │   │   ├── Data/                 #   Loader + generator dataset xác định
 │   │   ├── Endpoints/            #   5 endpoint khách hàng
 │   │   └── Search/               #   Chuẩn hoá và tìm theo tên
 │   │
 │   ├── CrmCopilot.McpServer/     # MCP Server + RAG                 (:5090)
+│   │   ├── Dockerfile            #   Multi-stage, non-root; cũng là image của job `ingest`
 │   │   ├── Crm/                  #   CustomerTools, OpportunityTools, CampaignTools, MockCrmGateway
 │   │   ├── Knowledge/            #   Chroma client, Gemini embedding, retriever, ingestion
 │   │   ├── Email/                #   EmailTools, PiiMasker, GeminiEmailDraftGenerator
@@ -350,6 +355,7 @@ CrmCopilot/
 │   │   └── Tools/                #   Helper dựng envelope tool result
 │   │
 │   └── CrmCopilot.Web/           # AI Host + MCP Client + UI        (:5081)
+│       ├── Dockerfile            #   Multi-stage, non-root
 │       ├── Chat/                 #   ChatOrchestrator, InputGuard, ApprovedMcpToolNames,
 │       │                         #   GeminiChatClient, McpClientProvider, ConversationState
 │       ├── Pages/Index.cshtml    #   Trang duy nhất
@@ -370,16 +376,32 @@ CrmCopilot/
 
 | Thành phần | Yêu cầu |
 | --- | --- |
-| .NET SDK | **`10.0.400`** (band `10.0.4xx`, `rollForward: latestPatch`) — kiểm tra bằng `dotnet --version` |
-| Docker | Cần cho container Chroma. Không cần cho 3 service .NET |
+| .NET SDK | **`10.0.400`** (band `10.0.4xx`, `rollForward: latestPatch`) — kiểm tra bằng `dotnet --version`. Chỉ cần cho §9A và để chạy test |
+| Docker | Lối §9A: chỉ cần cho container Chroma. Lối §9B: cần cho cả 4 service. Compose v2 (`docker compose`, không phải `docker-compose`) |
 | Gemini API key | Bắt buộc. Cần quyền gọi cả model chat và model embedding |
 | Hệ điều hành | Windows + PowerShell là môi trường đã kiểm chứng. Mã nguồn không phụ thuộc nền tảng |
-| Port trống | `5081` (Web) · `5090` (MCP Server) · `5100` (Mock CRM) · `8000` (Chroma) |
+| Port trống | `5081` (Web) · `5090` (MCP Server) · `5100` (Mock CRM) · `8000` (Chroma) — **giống nhau ở cả hai lối chạy** |
 | Mạng | Cần ra Internet để gọi Gemini API |
 
 ---
 
 ## 9. Cài đặt và chạy
+
+Có **hai lối chạy**, cho cùng một kết quả và cùng bộ port:
+
+| | §9A — `dotnet run` | §9B — `docker compose` |
+| --- | --- | --- |
+| Cần .NET SDK trên máy | Có | Không |
+| Số terminal phải mở | 3 | 0 |
+| Secret lấy từ | .NET User Secrets | environment / `.env` |
+| Hợp cho | phát triển, debug, chạy test | demo, kiểm tra đóng gói |
+
+> **Hai lối này loại trừ nhau** — cùng chiếm `5081/5090/5100/8000`. Đang chạy lối này thì phải dừng hẳn
+> trước khi chuyển sang lối kia. Xem "Chuyển qua lại giữa hai lối" ở cuối §9B.
+
+---
+
+## 9A. Chạy bằng `dotnet run`
 
 ### Bước 1 — Restore và build
 
@@ -433,6 +455,11 @@ $env:GEMINI_API_KEY = (Read-Host -AsSecureString "GEMINI_API_KEY" |
 
 > `.env.example` chỉ là **danh sách tên biến** cho người đọc. Repo **không có** loader nào đọc file
 > `.env` — sao chép nó thành `.env` sẽ không có tác dụng gì với `dotnet run`.
+>
+> Điều này **chỉ đúng cho §9A**. Ở §9B, `docker compose` tự đọc `.env` ở repo root, nhưng chỉ để
+> interpolate `${...}` bên trong `compose.yaml`, và chỉ với hai tên: `GEMINI_API_KEY` (bắt buộc) và
+> `CHROMA_COLLECTION_NAME` (tuỳ chọn). Ba biến URL trong `.env` bị **bỏ qua** — `compose.yaml`
+> hard-code chúng thành compose service name.
 
 Thiếu biến bắt buộc, host **fail fast ngay lúc khởi động** (`ValidateOnStart`) thay vì âm thầm chạy sai.
 
@@ -492,6 +519,109 @@ foreach ($u in @(
 ```
 
 Sau đó mở **<http://localhost:5081>**.
+
+---
+
+## 9B. Chạy bằng Docker Compose
+
+Không cần .NET SDK trên máy — image tự build trong container. `compose.yaml` dựng bốn service:
+`web`, `mcpserver`, `mockcrmapi`, `chroma`, cộng một job `ingest` chạy một lần theo profile.
+
+### Bước 1 — Đặt `GEMINI_API_KEY`
+
+Đây là **secret duy nhất**, và chỉ được inject lúc runtime — không bao giờ nằm trong image. Compose
+lấy nó từ environment của shell, hoặc từ `.env` ở repo root (đã bị `.gitignore` chặn):
+
+```powershell
+# Cách 1 — file .env ở repo root (compose tự đọc)
+#   GEMINI_API_KEY=<khoá của bạn>
+
+# Cách 2 — chỉ trong phiên PowerShell hiện tại, không đi vào lịch sử shell
+$env:GEMINI_API_KEY = (Read-Host -AsSecureString "GEMINI_API_KEY" |
+  ForEach-Object { [Runtime.InteropServices.Marshal]::PtrToStringBSTR(
+      [Runtime.InteropServices.Marshal]::SecureStringToBSTR($_)) })
+```
+
+Thiếu hoặc để rỗng thì compose **dừng ngay** với thông báo `GEMINI_API_KEY is required`, không dựng
+container nào. Ba biến URL không cần đặt: `compose.yaml` hard-code chúng thành service name.
+
+### Bước 2 — Dựng stack
+
+Nếu bạn từng chạy Chroma thủ công theo §9A, hãy nhường port `8000` trước:
+
+```powershell
+docker stop crm-copilot-chroma   # chỉ stop; volume crm-copilot-chroma-data giữ nguyên
+docker compose up -d --build
+```
+
+Compose chờ theo đúng thứ tự phụ thuộc: `chroma` + `mockcrmapi` healthy → `mcpserver` → healthy →
+`web`. Kiểm tra:
+
+```powershell
+docker compose ps
+```
+
+Cả bốn dòng phải là `Up ... (healthy)`.
+
+### Bước 3 — Nạp knowledge vào Chroma
+
+Volume của compose là volume **mới và rỗng**, nên lần đầu bắt buộc phải ingest. Job này nằm sau
+profile `ingest` nên `docker compose up` thường ngày **không** tốn Gemini API call:
+
+```powershell
+docker compose --profile ingest run --rm ingest
+```
+
+Lần đầu: **21 documents (21 embedded, 0 unchanged) … collection count after ingest=21**.
+Chạy lại trên dữ liệu không đổi: **0 embedded, 21 unchanged** — bằng chứng ingestion idempotent.
+
+Kiểm tra nhanh chất lượng truy xuất:
+
+```powershell
+docker compose --profile ingest run --rm --entrypoint dotnet ingest `
+  CrmCopilot.McpServer.dll --query-knowledge "Khách hàng quan tâm gửi tiết kiệm an toàn kỳ hạn 6 tháng, cần liên hệ lại."
+```
+
+Kỳ vọng: L2 norm ≈ `1.000000`, và `PRD-SAV-006M` đứng đầu top-3.
+
+### Bước 4 — Preflight
+
+Dùng đúng block PowerShell ở **§9A Bước 6**, không sửa gì — port phía host giống hệt. Cả bốn phải
+trả `200`. Sau đó mở **<http://localhost:5081>**.
+
+### Vận hành hằng ngày
+
+```powershell
+docker compose logs -f mcpserver     # xem log một service
+docker compose restart web           # restart một service (mất toàn bộ conversation state)
+docker compose up -d --build         # build lại sau khi sửa code
+docker compose down                  # dừng, GIỮ index Chroma
+docker compose down -v               # dừng và XOÁ index Chroma của stack này
+```
+
+`docker compose down -v` chỉ xoá volume `crm-copilot_chroma-data` của stack này. Volume
+`crm-copilot-chroma-data` mà lối §9A dùng là volume **khác** và không bị đụng tới. Sau `down -v`,
+phải chạy lại Bước 3.
+
+### Chuyển qua lại giữa hai lối
+
+```powershell
+# §9B  ->  §9A
+docker compose down
+docker start crm-copilot-chroma
+
+# §9A  ->  §9B
+#   dừng 3 terminal dotnet run (Ctrl+C), rồi:
+docker stop crm-copilot-chroma
+docker compose up -d
+```
+
+Hai lối dùng **hai index Chroma riêng biệt**. Index đã nạp ở lối này không xuất hiện ở lối kia; mỗi
+lối cần bước ingest của riêng nó một lần.
+
+---
+
+## 9C. Tham khảo chung
 
 ### Sinh lại dataset CRM (tuỳ chọn)
 
@@ -675,14 +805,24 @@ Kỳ vọng về corpus được viết dưới dạng **thuộc tính, không p
 
 ## 13. Giới hạn đã biết
 
-- **Conversation state là in-memory.** Restart `CrmCopilot.Web` là mất toàn bộ phiên. Không có TTL,
-  không có idle-expiry.
+- **Conversation state là in-memory.** Restart `CrmCopilot.Web` — kể cả bằng
+  `docker compose restart web` — là mất toàn bộ phiên. Không có TTL, không có idle-expiry.
 - **`InputGuard` là best-effort và cố ý thiên về từ chối nhầm.** Nó có thể chặn một câu hỏi hợp lệ; đó
   là hướng thất bại được chấp nhận. Loại bỏ hoàn toàn rủi ro cần hạ tầng NER thật.
 - **Gọi trực tiếp MCP tool bỏ qua `InputGuard`.** Các tool ngoài `get_customer` khi nhận `customerId`
   sai định dạng qua MCP trực tiếp sẽ trả `NOT_FOUND` thay vì `CUSTOMER_ID_INVALID`. Luồng qua trình
   duyệt không bị ảnh hưởng vì Host đã chặn từ trước.
-- **Chưa có Docker Compose**, chưa có authentication/authorization mức production.
+- **Docker Compose chỉ dành cho local.** Chưa có authentication/authorization mức production, chưa có
+  TLS termination, secret manager, CI/CD hay cloud deploy. Port chỉ bind vào `127.0.0.1`, không expose
+  ra mạng ngoài.
+- **`/health` chỉ là liveness.** Nó trả `200` ngay khi process boot xong và **không** probe Chroma,
+  Mock CRM hay Gemini. Vì vậy `depends_on: service_healthy` trong `compose.yaml` chứng minh tiến trình
+  đã sống, chứ không chứng minh dependency đã sẵn sàng.
+- **Một test phụ thuộc môi trường máy.** `MockCrmGatewayOptionsTests.Host_WithNoBaseUrlConfiguredAtAll_FailsToStart`
+  dùng `WebApplicationFactory` trần, không có tombstone `null` như các factory anh em, nên nếu máy có
+  file `src/CrmCopilot.McpServer/appsettings.Development.json` (bị `.gitignore` chặn, không có trong
+  repo) thì `MOCKCRM_API_BASE_URL` rò vào và test này fail. Chạy với `ASPNETCORE_ENVIRONMENT=Production`
+  thì bộ test trở lại 508/503/0/5. Đây là khiếm khuyết của test, chưa sửa.
 - **Ngưỡng `MaxDistance` mặc định `1.2`** là điểm khởi đầu có lập luận; hiệu chỉnh bằng
   `--query-knowledge` trên khoảng cách thật.
 - Nhánh `develop` **chưa** được merge vào `main`, và hai nhánh đã phân kỳ.
