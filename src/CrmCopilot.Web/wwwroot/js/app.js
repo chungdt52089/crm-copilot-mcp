@@ -32,6 +32,7 @@
     input: document.getElementById("chat-input"),
     sendButton: document.getElementById("send-button"),
     resetButton: document.getElementById("reset-button"),
+    logoutButton: document.getElementById("logout-button"),
     loadingIndicator: document.getElementById("loading-indicator"),
     chatLog: document.getElementById("chat-log"),
     errorBanner: document.getElementById("error-banner"),
@@ -500,6 +501,13 @@
         body: JSON.stringify({ message: message, sessionId: sessionId }),
       });
 
+      // P0-12: the cookie expired or was cleared mid-session. The endpoint answers /api/* with a
+      // bare 401 (never a redirect to the login HTML), so there is no ChatResponse to parse.
+      if (res.status === 401) {
+        window.location.href = "/Login";
+        return;
+      }
+
       let body;
       try {
         body = await res.json();
@@ -570,6 +578,18 @@
 
   els.resetButton.addEventListener("click", function () {
     resetSession();
+  });
+
+  // P0-12 logout: best-effort sign-out, then always leave for /Login regardless of the outcome —
+  // same "client state ends clean whatever the server said" rule as resetSession above.
+  els.logoutButton.addEventListener("click", async function () {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch (networkError) {
+      // ignored on purpose
+    } finally {
+      window.location.href = "/Login";
+    }
   });
 
   renderAll();

@@ -491,7 +491,7 @@ public class ChatEndpointTests
             services.AddSingleton<IMcpClientProvider>(failingProvider);
         }));
 
-        var (response, body) = await PostChatAsync(webFactory.CreateClient(), "Sản phẩm tiết kiệm 6 tháng có đặc điểm gì?");
+        var (response, body) = await PostChatAsync(await ChatTestHarness.CreateAuthenticatedClientAsync(webFactory, TestContext.Current.CancellationToken), "Sản phẩm tiết kiệm 6 tháng có đặc điểm gì?");
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
         Assert.Equal(ChatTurnErrorCode.McpUnavailable, body.Error?.Code);
@@ -518,7 +518,7 @@ public class ChatEndpointTests
             services.AddSingleton<IMcpClientProvider>(new PreconnectedMcpClientProvider(mcpClient));
         }));
 
-        var (response, body) = await PostChatAsync(webFactory.CreateClient(), "Sản phẩm tiết kiệm 6 tháng có đặc điểm gì?");
+        var (response, body) = await PostChatAsync(await ChatTestHarness.CreateAuthenticatedClientAsync(webFactory, TestContext.Current.CancellationToken), "Sản phẩm tiết kiệm 6 tháng có đặc điểm gì?");
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
         Assert.Equal(ChatTurnErrorCode.McpUnavailable, body.Error?.Code);
@@ -547,7 +547,7 @@ public class ChatEndpointTests
             services.AddSingleton<IMcpClientProvider>(new PreconnectedMcpClientProvider(mcpClient));
         }));
 
-        var (response, body) = await PostChatAsync(webFactory.CreateClient(), "Tìm khách hàng CUS-0001");
+        var (response, body) = await PostChatAsync(await ChatTestHarness.CreateAuthenticatedClientAsync(webFactory, TestContext.Current.CancellationToken), "Tìm khách hàng CUS-0001");
 
         // ListToolsAsync (not blocked by this handler) must have succeeded — proven by the tool
         // actually being offered/selected at all — before CallToolAsync's own, isolated failure.

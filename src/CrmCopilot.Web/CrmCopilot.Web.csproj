@@ -20,4 +20,8 @@
     <PackageReference Include="ModelContextProtocol" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\..\data\auth\*.json" Link="data\auth\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

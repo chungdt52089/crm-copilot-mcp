@@ -1,4 +1,7 @@
 @page
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -10,7 +13,11 @@
 <body>
   <header class="app-header">
     <h1>CRM Copilot</h1>
+    @* Rendered server-side from the cookie's claims: Razor HTML-encodes these by default, so no
+       /api/auth/me endpoint and no client-side interpolation are needed. *@
+    <span id="current-user" class="current-user">@User.Identity?.Name (@User.FindFirstValue(ClaimTypes.Role))</span>
     <button id="reset-button" type="button">New conversation</button>
+    <button id="logout-button" type="button">Đăng xuất</button>
   </header>
 
   <main>

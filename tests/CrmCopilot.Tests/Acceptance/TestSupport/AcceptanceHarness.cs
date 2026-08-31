@@ -41,6 +41,10 @@ internal sealed class AcceptanceHarness : IAsyncDisposable
     /// <summary>Non-null only for harnesses created with <see cref="CreateWithWebAsync"/>.</summary>
     public FakeGeminiChatClient? ChatClient { get; private init; }
 
+    /// <summary>P0-12: minted once at construction, non-null whenever <see cref="WebFactory"/> is.
+    /// Same reasoning as ChatTestHarness — sign in once so CreateWebClient stays synchronous.</summary>
+    private string? AuthCookie { get; init; }
+
     /// <summary>MCP-only stack: for scenarios evaluated directly at the tool boundary (T02/T03/T07).</summary>
     public static Task<AcceptanceHarness> CreateMcpOnlyAsync(CancellationToken cancellationToken) =>
         CreateAsync(cancellationToken, withWeb: false, mcpClientProviderOverride: null);
@@ -78,6 +82,7 @@ internal sealed class AcceptanceHarness : IAsyncDisposable
 
         FakeGeminiChatClient? chatClient = null;
         WebApplicationFactory<WebEntryPoint>? webFactory = null;
+        string? authCookie = null;
 
         if (withWeb)
         {
@@ -93,6 +98,8 @@ internal sealed class AcceptanceHarness : IAsyncDisposable
                     services.RemoveAll<IMcpClientProvider>();
                     services.AddSingleton(provider);
                 }));
+
+            authCookie = await ChatTestHarness.LoginAsync(webFactory, cancellationToken).ConfigureAwait(false);
         }
 
         return new AcceptanceHarness
@@ -104,13 +111,20 @@ internal sealed class AcceptanceHarness : IAsyncDisposable
             EmailDraftGenerator = emailDraftGenerator,
             ChatClient = chatClient,
             WebFactory = webFactory,
+            AuthCookie = authCookie,
         };
     }
 
-    public HttpClient CreateWebClient() =>
-        (WebFactory ?? throw new InvalidOperationException(
-            "This harness was created without a Web host — use CreateWithWebAsync for /api/chat scenarios."))
-        .CreateClient();
+    /// <summary>P0-12: every /api/chat scenario runs as the signed-in demo RM.</summary>
+    public HttpClient CreateWebClient()
+    {
+        var factory = WebFactory ?? throw new InvalidOperationException(
+            "This harness was created without a Web host — use CreateWithWebAsync for /api/chat scenarios.");
+
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("Cookie", AuthCookie!);
+        return client;
+    }
 
     public async ValueTask DisposeAsync()
     {

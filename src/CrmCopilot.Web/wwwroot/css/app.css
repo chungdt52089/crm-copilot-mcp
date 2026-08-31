@@ -231,3 +231,64 @@ textarea:disabled {
 #call-script-panel li {
   padding: 0.1rem 0;
 }
+
+/* ---- P0-12 auth: header identity + login page ---- */
+.app-header h1 {
+  margin-right: auto;
+}
+
+.current-user {
+  font-size: 0.85rem;
+  opacity: 0.85;
+  margin-right: 0.75rem;
+}
+
+.app-header button + button {
+  margin-left: 0.5rem;
+}
+
+.login-main {
+  max-width: 360px;
+  margin: 4rem auto;
+}
+
+.login-hint {
+  font-size: 0.85rem;
+  color: #6b7280;
+  margin-top: -0.5rem;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 1.25rem;
+}
+
+.login-form label {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.login-form input {
+  padding: 0.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 1rem;
+}
+
+.login-form button {
+  margin-top: 0.75rem;
+  padding: 0.5rem;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.login-error {
+  color: #b91c1c;
+  font-size: 0.85rem;
+  margin-top: 0.25rem;
+}

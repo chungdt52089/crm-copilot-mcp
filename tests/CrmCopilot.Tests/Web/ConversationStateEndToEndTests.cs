@@ -46,6 +46,9 @@ public class ConversationStateEndToEndTests
         return (response, body!);
     }
 
+    /// <summary>P0-12: the store is keyed by (userId, sessionId); these tests pin one user.</summary>
+    private const string TestUserId = "rm01";
+
     private static IConversationStateStore GetStateStore(ChatTestHarness harness) =>
         harness.WebFactory.Services.GetRequiredService<IConversationStateStore>();
 
@@ -64,7 +67,7 @@ public class ConversationStateEndToEndTests
         var (response, _) = await PostChatAsync(harness.CreateWebClient(), "Tìm khách hàng CUS-0001", sessionId);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("CUS-0001", GetStateStore(harness).GetOrCreate(sessionId).CurrentCustomerId);
+        Assert.Equal("CUS-0001", GetStateStore(harness).GetOrCreate(TestUserId, sessionId).CurrentCustomerId);
         Assert.Equal(1, harness.ChatClient.CallCount);
     }
 
@@ -110,7 +113,7 @@ public class ConversationStateEndToEndTests
             "get_customer", new Dictionary<string, object> { ["customerId"] = "CUS-0002" }));
         await PostChatAsync(client, "Tìm khách hàng CUS-0002", sessionId);
 
-        Assert.Equal("CUS-0002", GetStateStore(harness).GetOrCreate(sessionId).CurrentCustomerId);
+        Assert.Equal("CUS-0002", GetStateStore(harness).GetOrCreate(TestUserId, sessionId).CurrentCustomerId);
 
         harness.CrmGateway.InteractionsResult = [Int0002];
         harness.ChatClient.Enqueue(FakeGeminiChatClient.FunctionCallResponse("get_interactions"));
@@ -141,7 +144,7 @@ public class ConversationStateEndToEndTests
         // no follow-up completion); session B's turn is rejected by InputGuard before Gemini is ever
         // reached, so the count doesn't grow.
         Assert.Equal(1, harness.ChatClient.CallCount);
-        Assert.Null(GetStateStore(harness).GetOrCreate(sessionB).CurrentCustomerId);
+        Assert.Null(GetStateStore(harness).GetOrCreate(TestUserId, sessionB).CurrentCustomerId);
     }
 
     // --- Follow-up with no active customer asks for clarification ---
@@ -181,8 +184,8 @@ public class ConversationStateEndToEndTests
             $"/api/chat/sessions/{sessionA}", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
-        Assert.Null(GetStateStore(harness).GetOrCreate(sessionA).CurrentCustomerId);
-        Assert.Equal("CUS-0002", GetStateStore(harness).GetOrCreate(sessionB).CurrentCustomerId);
+        Assert.Null(GetStateStore(harness).GetOrCreate(TestUserId, sessionA).CurrentCustomerId);
+        Assert.Equal("CUS-0002", GetStateStore(harness).GetOrCreate(TestUserId, sessionB).CurrentCustomerId);
 
         var (response, body) = await PostChatAsync(client, "Khách hàng này có tương tác gì?", sessionA);
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -242,7 +245,7 @@ public class ConversationStateEndToEndTests
             await PostChatAsync(client, $"Câu hỏi số {i} về sản phẩm tiết kiệm", sessionId);
         }
 
-        var messages = GetStateStore(harness).GetOrCreate(sessionId).RecentSanitizedMessages;
+        var messages = GetStateStore(harness).GetOrCreate(TestUserId, sessionId).RecentSanitizedMessages;
         Assert.Equal(8, messages.Count);
         Assert.DoesNotContain("Câu hỏi số 1 về sản phẩm tiết kiệm", messages);
         Assert.Contains("Câu hỏi số 9 về sản phẩm tiết kiệm", messages);

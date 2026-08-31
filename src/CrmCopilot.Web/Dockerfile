@@ -7,8 +7,10 @@
 # SDK tag is pinned, not floating: global.json requires 10.0.400 with
 # rollForward=latestPatch, so an SDK outside the 10.0.4xx band fails restore.
 #
-# Unlike the other two services, Web reads no data/*.json — its Razor page and
-# wwwroot assets are carried by the Web SDK's own publish rules.
+# The Razor page and wwwroot assets are carried by the Web SDK's own publish
+# rules. Since P0-12, Web also reads data/auth/users.json (the synthetic login
+# accounts), so that folder must be in the build context like the other two
+# services' data/ folders — UserStore fails fast at startup without it.
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0.400 AS build
 WORKDIR /src
@@ -23,6 +25,7 @@ RUN dotnet restore src/CrmCopilot.Web/CrmCopilot.Web.csproj
 # Build layer — only this service's own sources plus Contracts.
 COPY src/CrmCopilot.Contracts/ src/CrmCopilot.Contracts/
 COPY src/CrmCopilot.Web/       src/CrmCopilot.Web/
+COPY data/auth/                data/auth/
 RUN dotnet publish src/CrmCopilot.Web/CrmCopilot.Web.csproj \
       -c Release -o /app/publish --no-restore
 
