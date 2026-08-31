@@ -32,7 +32,10 @@ public static class ChatServiceCollectionExtensions
             new Client(apiKey: serviceProvider.GetRequiredService<IOptions<GeminiChatOptions>>().Value.ApiKey));
         services.AddSingleton<IGeminiChatClient, GeminiChatClient>();
 
-        services.AddSingleton<IMcpClientProvider, McpClientProvider>();
+        // P0-13: SCOPED, not singleton — the transport carries the calling user's bearer token,
+        // which SDK 2.2.0 fixes at transport construction. DI disposes it (IAsyncDisposable) when
+        // the request scope ends, so each turn gets its own initialize + client.
+        services.AddScoped<IMcpClientProvider, McpClientProvider>();
 
         services.AddSingleton<IConversationStateStore, InMemoryConversationStateStore>();
 

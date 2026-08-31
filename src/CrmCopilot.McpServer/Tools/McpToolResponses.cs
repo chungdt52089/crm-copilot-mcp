@@ -12,6 +12,8 @@ namespace CrmCopilot.McpServer.Tools;
 /// </summary>
 internal static class McpToolResponses
 {
+    public const string ForbiddenMessage = "Vai trò của bạn không được phép dùng chức năng này.";
+
     public static string Success(string traceId, IReadOnlyList<string> sourceIds, object data) =>
         Serialize(new McpToolResult(McpToolStatus.Success, traceId, sourceIds, data, null));
 
@@ -30,6 +32,14 @@ internal static class McpToolResponses
 
     public static string Error(string traceId, string code, string message, bool retryable) =>
         Serialize(new McpToolResult(McpToolStatus.Error, traceId, [], null, new McpToolError(code, message, retryable)));
+
+    /// <summary>P0-13: the caller authenticated but their role may not use this tool. Carries no
+    /// data and no sourceIds, and the message names neither the tool, the permitted roles, nor any
+    /// policy detail — same disclosure rule as CustomerIdFormat.InvalidMessage.</summary>
+    public static string Forbidden(string traceId) =>
+        Serialize(new McpToolResult(
+            McpToolStatus.Error, traceId, [], null,
+            new McpToolError(McpToolErrorCode.Forbidden, ForbiddenMessage, Retryable: false)));
 
     private static string Serialize(McpToolResult result) =>
         JsonSerializer.Serialize(result, CrmJsonOptions.Default);

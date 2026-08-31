@@ -57,11 +57,7 @@ public class McpToolProtocolTests
     {
         var httpClient = factory.CreateClient();
         var transport = new HttpClientTransport(
-            new HttpClientTransportOptions
-            {
-                Endpoint = new Uri(httpClient.BaseAddress!, "mcp"),
-                TransportMode = HttpTransportMode.StreamableHttp,
-            },
+            McpTestTransport.Options(httpClient, McpTestTokens.AuthorizationHeader()),
             httpClient,
             ownsHttpClient: true);
 

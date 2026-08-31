@@ -152,17 +152,18 @@ internal sealed class ChatTestHarness : IAsyncDisposable
     }
 
     /// <summary>Same connection recipe as McpToolProtocolTests.ConnectAsync (P0-04) — kept
-    /// separate here since Tests has no shared helper for it yet and this harness needs it too.</summary>
+    /// separate here since Tests has no shared helper for it yet and this harness needs it too.
+    /// P0-13: /mcp requires a bearer token, and the transport pins its headers at construction.</summary>
+    public static Task<McpClient> ConnectAsync(
+        WebApplicationFactory<McpServerEntryPoint> factory, CancellationToken cancellationToken) =>
+        ConnectAsync(factory, McpTestTokens.AuthorizationHeader(), cancellationToken);
+
     public static async Task<McpClient> ConnectAsync(
-        WebApplicationFactory<McpServerEntryPoint> factory, CancellationToken cancellationToken)
+        WebApplicationFactory<McpServerEntryPoint> factory, string authorizationHeader, CancellationToken cancellationToken)
     {
         var httpClient = factory.CreateClient();
         var transport = new HttpClientTransport(
-            new HttpClientTransportOptions
-            {
-                Endpoint = new Uri(httpClient.BaseAddress!, "mcp"),
-                TransportMode = HttpTransportMode.StreamableHttp,
-            },
+            McpTestTransport.Options(httpClient, authorizationHeader),
             httpClient,
             ownsHttpClient: true);
 

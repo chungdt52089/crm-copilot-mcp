@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using CrmCopilot.McpServer.Auth;
 using CrmCopilot.McpServer.CallScript;
 using CrmCopilot.McpServer.Crm;
 using CrmCopilot.McpServer.Email;
@@ -25,8 +26,14 @@ builder.Services.AddCrmGateway(builder.Configuration);
 builder.Services.AddKnowledgeRetrieval(builder.Configuration);
 builder.Services.AddEmailGeneration();
 builder.Services.AddCallScriptGeneration();
+builder.Services.AddMcpJwtAuthentication(builder.Configuration);
 builder.Services.AddMcpServer()
     .WithHttpTransport(options => options.SessionMode = HttpServerSessionMode.Stateless)
+
+    // P0-13 (PD-022): one enforcement point for every tools/call, ahead of any tool body.
+    // Deliberately NOT AddAuthorizationFilters() — that would also filter tools/list per role,
+    // and a tool the model never sees is a tool it never calls, leaving no refusal to log.
+    .WithRequestFilters(filters => filters.AddCallToolFilter(ToolAuthorizationFilter.Apply))
     .WithTools<CustomerTools>()
     .WithTools<KnowledgeTools>()
     .WithTools<EmailTools>()
@@ -38,8 +45,16 @@ builder.Services.AddMcpServer()
 
 var app = builder.Build();
 
+app.UseAuthentication();
+app.UseAuthorization();
+
+// Deliberately anonymous — compose.yaml's healthcheck and the README preflight both probe it.
 app.MapHealthChecks("/health");
-app.MapMcp("/mcp");
+
+// P0-13: an unauthenticated /mcp call is refused here, at the HTTP layer, with 401 — it never
+// reaches a tool. FORBIDDEN (403-equivalent at the tool layer) is the different case: authenticated,
+// but the role is not permitted. HttpServerSessionMode.Stateless above is unchanged.
+app.MapMcp("/mcp").RequireAuthorization();
 
 app.Run();
 

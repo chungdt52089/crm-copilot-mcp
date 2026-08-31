@@ -16,7 +16,8 @@ if (args is ["--hash-password", var plainPassword])
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddHealthChecks();
-builder.Services.AddCookieAuthentication();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddCookieAuthentication(builder.Configuration, builder.Environment);
 builder.Services.AddChatOrchestration(builder.Configuration);
 builder.Services.AddRazorPages();
 
@@ -29,7 +30,7 @@ app.UseAuthorization();
 
 // Deliberately anonymous — compose.yaml's healthcheck and the README preflight both probe it.
 app.MapHealthChecks("/health");
-app.MapAuthEndpoints();
+app.MapAuthEndpoints(app.Environment);
 app.MapChatEndpoints();
 app.MapRazorPages();
 

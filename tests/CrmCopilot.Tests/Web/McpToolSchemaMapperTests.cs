@@ -16,11 +16,7 @@ public class McpToolSchemaMapperTests
         await using var factory = McpServerTestHost.CreateWithMockCrmApiBaseUrl(McpServerTestHost.ValidMockCrmApiBaseUrl);
         var httpClient = factory.CreateClient();
         var transport = new ModelContextProtocol.Client.HttpClientTransport(
-            new ModelContextProtocol.Client.HttpClientTransportOptions
-            {
-                Endpoint = new Uri(httpClient.BaseAddress!, "mcp"),
-                TransportMode = ModelContextProtocol.Client.HttpTransportMode.StreamableHttp,
-            },
+            McpTestTransport.Options(httpClient, McpTestTokens.AuthorizationHeader()),
             httpClient, ownsHttpClient: true);
         await using var client = await ModelContextProtocol.Client.McpClient.CreateAsync(transport, cancellationToken: TestContext.Current.CancellationToken);
 

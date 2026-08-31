@@ -8,6 +8,13 @@
     <PackageVersion Include="Google.GenAI" Version="1.19.0" />
     <PackageVersion Include="ModelContextProtocol" Version="2.2.0" />
     <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="2.2.0" />
+    <!-- P0-13. Two halves of one shared-symmetric-key JWT: McpServer validates, Web signs.
+         JwtBearer 10.0.11 matches the runtime/ref-pack band already in use (and Mvc.Testing's
+         pin). JsonWebTokens is pinned to 8.19.2 — not the newest 8.22.0 — because that is exactly
+         what JwtBearer 10.0.11 resolves via Microsoft.IdentityModel.Protocols.OpenIdConnect,
+         so the solution keeps a single Microsoft.IdentityModel version graph. -->
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.19.2" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
     <PackageVersion Include="xunit.v3" Version="4.0.0" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0" />

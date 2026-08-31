@@ -34,6 +34,11 @@ public static class ChatTurnErrorCode
     public const string RagUnavailable = "RAG_UNAVAILABLE";
     public const string NotFound = "NOT_FOUND";
 
+    /// <summary>P0-13 pass-through of <see cref="Mcp.McpToolErrorCode.Forbidden"/>: the MCP
+    /// boundary refused the call because the signed-in user's role is not permitted to use that
+    /// tool. Maps to HTTP 403 (see ChatEndpoints) — the only 403 in this API.</summary>
+    public const string Forbidden = "FORBIDDEN";
+
     // Input validation / catch-all.
     public const string InvalidArgument = "INVALID_ARGUMENT";
     public const string InternalError = "INTERNAL_ERROR";
