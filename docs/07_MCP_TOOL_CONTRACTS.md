@@ -24,8 +24,11 @@ thay cho việc để lại backlog P1/P2 như §10 dự kiến ban đầu — x
 | `get_campaigns` | Lấy chiến dịch mà một customer thuộc diện tham gia | `ICrmGateway` | §12 |
 | `generate_call_script` | Tạo call-script draft grounded + masked | CRM gateway + RAG + Gemini | §13 |
 
-`tools/list` phải trả về **đúng bảy tool** này, không thừa không thiếu; tất cả `ReadOnly=true`,
-`Destructive=false`.
+**Cập nhật 2026-08-27 (P0-14):** thêm tool thứ tám `delete_customer` — xem §14.
+
+`tools/list` phải trả về **đúng tám tool**, không thừa không thiếu. Bảy tool ở bảng trên giữ
+`ReadOnly=true`, `Destructive=false`; riêng `delete_customer` là `ReadOnly=false`,
+`Destructive=true`.
 
 ## 3. Common result fields
 
@@ -240,9 +243,13 @@ giờ xuất hiện ở đây: `generate_email` retrieve với filter `[product]
 
 ## 8. Tool annotations/safety
 
-Cả **bảy** tool ở §2 đều `ReadOnly=true`, `Destructive=false`: năm tool đọc thuần, và hai tool
+Bảy tool đầu ở §2 đều `ReadOnly=true`, `Destructive=false`: năm tool đọc thuần, và hai tool
 generate (`generate_email`, `generate_call_script`) chỉ sinh draft, không ghi, không gửi, không gọi.
-Không expose tool `send_email` — hay bất kỳ tool ghi dữ liệu nào — trong P0.
+
+**Cập nhật 2026-08-27 (P0-14).** Câu cấm cũ *"không expose bất kỳ tool ghi dữ liệu nào trong P0"*
+được override bởi PD-021: `delete_customer` là **ngoại lệ duy nhất**, `ReadOnly=false`,
+`Destructive=true`, và được gác bằng authorization ở MCP boundary (§14). Vẫn **không** expose
+`send_email` hay bất kỳ tool nào gây tác động ra ngoài hệ thống.
 
 Host chỉ cho model thấy allowlist tool đã duyệt. Mọi tool call phải validate lại ở server; không tin
 arguments do model tạo.

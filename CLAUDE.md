@@ -67,6 +67,38 @@ Trước mọi checkpoint:
 - PII được mask trước mọi payload gửi Gemini và trước log.
 - Email chỉ là draft, luôn có `requiresHumanApproval = true`; không có chức năng gửi.
 
+## 4.1 Cập nhật 2026-08-27 — P0-12 → P0-15 (ĐỌC KỸ)
+
+> Lưu ý đánh số: **P0-11 = Dockerization**, đã merge vào `develop` qua PR #17
+> (`feature/p0-11-dockerization`) nhưng **chưa có row trong `docs/CHECKPOINT_STATUS.md`**.
+> Bốn checkpoint dưới đây bắt đầu từ **P0-12**.
+
+Product Owner đã phê duyệt bốn checkpoint mới. Plan chi tiết: `docs/15_PLAN_P0-12_TO_P0-15.md`.
+Những điểm sau **override** baseline ở §4; không được coi là vi phạm scope:
+
+- **Authentication/authorization vào P0.** Cookie auth trên `CrmCopilot.Web`, ba role
+  `RM` / `Auditor` / `Admin`, user tổng hợp trong `data/auth/users.json`. Đây là auth **minh hoạ**
+  trên dữ liệu tổng hợp, không phải production-grade.
+- **`tools/list` trả 8 tool**, không còn 7. Tool thứ 8 là `delete_customer`.
+- **`delete_customer` là tool ghi dữ liệu đầu tiên** của dự án: `ReadOnly=false`,
+  `Destructive=true`. Nó là **ngoại lệ duy nhất** — sáu tool đọc và hai tool sinh draft vẫn giữ
+  `ReadOnly=true`, `Destructive=false`.
+- **Xoá là xoá mềm, chỉ trong bộ nhớ** của `CrmCopilot.MockCrmApi`. Tuyệt đối **không** ghi vào
+  `data/crm/customers.json` — file đó bị golden test khoá và có SHA-256 trong frozen baseline.
+- **Authorization thực thi ở MCP Server boundary** bằng JWT, không lọc ở Host. Gemini vẫn thấy
+  đủ 8 tool với mọi role — nếu ẩn tool đi thì lời gọi không xảy ra và không có gì để ghi log.
+- **Conversation state đổi khoá** từ `sessionId` sang `(userId, sessionId)`.
+- **Speech-to-text**: `POST /api/transcribe` dùng Gemini transcribe; text hiện cho RM sửa/xác nhận
+  **trước khi** gửi sang `/api/chat`.
+
+Những bất biến sau **KHÔNG đổi**, không được nới trong bất kỳ checkpoint nào ở trên:
+
+- PII masking ba cơ chế và `InputGuard`.
+- `requiresHumanApproval` do server ép `true`.
+- MCP Server `HttpServerSessionMode.Stateless`.
+- Email chỉ là draft; không có chức năng gửi email hay thực hiện cuộc gọi.
+- Gemini chat `gemini-3.5-flash-lite`; embedding `gemini-embedding-001` 768 chiều.
+
 ## 5. Quy tắc implementation
 
 - Ưu tiên code đơn giản, explicit, testable; không thêm agent framework nếu official SDK và code trực tiếp đủ dùng.
