@@ -25,6 +25,14 @@ Ngày baseline: 2026-08-18. Trạng thái `Accepted` nghĩa là Claude không đ
 | PD-017 | Opportunity + call script là P1; Campaign + HubSpot là P2 | Accepted | Bảo vệ tiến độ P0 |
 | PD-018 | ChatGPT review plan/evidence; Claude implement một checkpoint/lần | Accepted | Tách planning/review khỏi implementation và kiểm soát scope |
 | PD-019 | Test mặc định chạy offline với fake/captured clients; smoke test Gemini/Chroma là opt-in | Accepted | CI/dev không phụ thuộc quota/network nhưng vẫn có evidence integration riêng |
+| PD-020 | Auth + role vào P0-12, override out-of-scope §2 | Accepted 2026-08-27 | Mentor yêu cầu bổ sung; auth minh hoạ trên dữ liệu tổng hợp |
+| PD-021 | Thêm tool thứ 8 `delete_customer`, `Destructive=true`, override `docs/07 §8` | Accepted 2026-08-27 | Cần một tool nhạy cảm để chứng minh phân quyền có tác dụng |
+| PD-022 | Authorization thực thi ở **MCP Server boundary** bằng JWT; Host **không** lọc tool | Accepted 2026-08-27 | Một điểm thực thi duy nhất; ẩn tool ở Host thì lời từ chối không xảy ra để ghi log |
+| PD-023 | `delete_customer` xoá **mềm, in-memory**; restart về nguyên trạng | Accepted 2026-08-27 | Giữ golden test và SHA-256 của `data/crm/customers.json` nguyên vẹn |
+| PD-024 | Ba role `RM` / `Auditor` / `Admin`; chỉ `Admin` được gọi `delete_customer` | Accepted 2026-08-27 | Đủ ba trường hợp: bình thường, bị hạn chế, có đặc quyền |
+| PD-025 | Speech-to-text dùng **Gemini transcribe**; RM xác nhận text trước khi gửi | Accepted 2026-08-27 | Mentor gợi ý; bước xác nhận là control PII, không phải tiện ích UX |
+| PD-026 | Log từ chối ghi ra **file log qua redirect console**, không dùng MCP logging notification | Accepted 2026-08-27 | 0 dòng code thêm; đồng thời trả nợ verification C8/B-03 |
+| PD-027 | Transcribe dùng **`gemini-3.5-flash`** (không phải `gemini-3.5-flash-lite`), audio `audio/webm;codecs=opus` | Accepted 2026-08-27 | Spike A đo thật: `flash-lite` trả rác ("Hải Phòng", "vợ"); `gemini-3.5-flash` transcribe đúng. Chat/email/call-script **vẫn giữ** `flash-lite` — chỉ transcribe dùng model riêng |
 
 ## 2. P0 scope
 
@@ -47,7 +55,9 @@ Ngày baseline: 2026-08-18. Trạng thái `Accepted` nghĩa là Claude không đ
 - Kết nối Bank A thật.
 - HubSpot/Salesforce trong P0.
 - Gửi email, gọi điện, cập nhật CRM hoặc hành động ghi dữ liệu.
-- Authentication/authorization production-grade.
+- ~~Authentication/authorization production-grade.~~ → **Cập nhật 2026-08-27 (PD-020):** auth
+  **minh hoạ** trên dữ liệu tổng hợp đã vào P0-12. Production-grade (SSO/OIDC, quản lý user,
+  refresh token, revocation) vẫn out of scope.
 - Long-term memory, Redis, PostgreSQL cho chat.
 - Fine-tuning/training model.
 - ML recommendation model, NER/DLP hoàn chỉnh.
