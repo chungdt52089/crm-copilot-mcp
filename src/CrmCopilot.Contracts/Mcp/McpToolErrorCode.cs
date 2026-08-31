@@ -16,4 +16,10 @@ public static class McpToolErrorCode
     public const string RagUnavailable = "RAG_UNAVAILABLE";
     public const string ModelError = "MODEL_ERROR";
     public const string InternalError = "INTERNAL_ERROR";
+
+    /// <summary>P0-13: the caller authenticated, but their role is not permitted to invoke this
+    /// tool. Refused at the MCP boundary by ToolAuthorizationFilter, before the tool body or any
+    /// gateway call runs. Distinct from an HTTP 401 on /mcp, which means "not authenticated at
+    /// all" and never reaches a tool.</summary>
+    public const string Forbidden = "FORBIDDEN";
 }

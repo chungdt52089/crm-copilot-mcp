@@ -78,6 +78,9 @@ services:
       CHROMA_BASE_URL: http://chroma:8000
       CHROMA_COLLECTION_NAME: ${CHROMA_COLLECTION_NAME:-crm-copilot-knowledge}
       GEMINI_API_KEY: ${GEMINI_API_KEY:?GEMINI_API_KEY is required — export it or put it in .env}
+      # P0-13. Must be byte-identical to web's value below — mcpserver validates the token web
+      # signs. Both containers fail fast at startup if it is unset or under 32 bytes.
+      MCP_JWT_SIGNING_KEY: ${MCP_JWT_SIGNING_KEY:?MCP_JWT_SIGNING_KEY is required — export it or put it in .env}
     depends_on:
       mockcrmapi:
         condition: service_healthy
@@ -98,6 +101,8 @@ services:
     environment:
       MCPSERVER_BASE_URL: http://mcpserver:8080
       GEMINI_API_KEY: ${GEMINI_API_KEY:?GEMINI_API_KEY is required — export it or put it in .env}
+      # P0-13. Same key as mcpserver above — web signs, mcpserver validates.
+      MCP_JWT_SIGNING_KEY: ${MCP_JWT_SIGNING_KEY:?MCP_JWT_SIGNING_KEY is required — export it or put it in .env}
     depends_on:
       mcpserver:
         condition: service_healthy

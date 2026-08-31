@@ -505,7 +505,7 @@ public class ChatEndpointTests
         await using var mcpFactory = McpServerTestHost.CreateWithMockCrmApiBaseUrl(McpServerTestHost.ValidMockCrmApiBaseUrl);
         var mcpHttpClient = mcpFactory.CreateDefaultClient(new FailOnJsonRpcMethodHandler("tools/list"));
         var transport = new HttpClientTransport(
-            new HttpClientTransportOptions { Endpoint = new Uri(mcpHttpClient.BaseAddress!, "mcp"), TransportMode = HttpTransportMode.StreamableHttp },
+            McpTestTransport.Options(mcpHttpClient, McpTestTokens.AuthorizationHeader()),
             mcpHttpClient, ownsHttpClient: true);
         await using var mcpClient = await McpClient.CreateAsync(transport, cancellationToken: TestContext.Current.CancellationToken);
 
@@ -532,7 +532,7 @@ public class ChatEndpointTests
         await using var mcpFactory = McpServerTestHost.CreateWithMockCrmApiBaseUrl(McpServerTestHost.ValidMockCrmApiBaseUrl);
         var mcpHttpClient = mcpFactory.CreateDefaultClient(new FailOnJsonRpcMethodHandler("tools/call"));
         var transport = new HttpClientTransport(
-            new HttpClientTransportOptions { Endpoint = new Uri(mcpHttpClient.BaseAddress!, "mcp"), TransportMode = HttpTransportMode.StreamableHttp },
+            McpTestTransport.Options(mcpHttpClient, McpTestTokens.AuthorizationHeader()),
             mcpHttpClient, ownsHttpClient: true);
         await using var mcpClient = await McpClient.CreateAsync(transport, cancellationToken: TestContext.Current.CancellationToken);
 

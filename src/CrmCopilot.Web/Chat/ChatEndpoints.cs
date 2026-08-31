@@ -102,6 +102,9 @@ internal static class ChatEndpoints
             ChatTurnErrorCode.CustomerIdRequired or ChatTurnErrorCode.CustomerIdInvalid or
             ChatTurnErrorCode.UnknownTool or ChatTurnErrorCode.DuplicateToolCall or
             ChatTurnErrorCode.MultipleFunctionCallsNotSupported => StatusCodes.Status400BadRequest,
+        // P0-13: the MCP boundary refused the tool for this user's role. 403, not 401 — the caller
+        // is authenticated; it is the role that is not permitted.
+        ChatTurnErrorCode.Forbidden => StatusCodes.Status403Forbidden,
         ChatTurnErrorCode.ToolLoopLimitExceeded => StatusCodes.Status409Conflict,
         ChatTurnErrorCode.UpstreamUnavailable or ChatTurnErrorCode.RagUnavailable or ChatTurnErrorCode.McpUnavailable =>
             StatusCodes.Status503ServiceUnavailable,

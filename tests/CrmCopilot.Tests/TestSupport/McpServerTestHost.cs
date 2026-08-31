@@ -1,5 +1,6 @@
 using CrmCopilot.McpServer;
 using CrmCopilot.McpServer.Crm;
+using CrmCopilot.Contracts.Auth;
 using CrmCopilot.McpServer.Knowledge;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
@@ -47,6 +48,11 @@ internal static class McpServerTestHost
     public const string ValidGeminiApiKey = "test-gemini-api-key";
     public const string ValidChromaBaseUrl = "http://localhost:8000";
 
+    /// <summary>P0-13: /mcp now requires a validated bearer token, so every host that is expected
+    /// to START must be given a signing key. Shared with McpTestTokens so the tokens tests present
+    /// verify against this same key.</summary>
+    public const string ValidMcpJwtSigningKey = McpTestTokens.SigningKey;
+
     /// <summary>Boots McpServer with MOCKCRM_API_BASE_URL injected as given, plus valid default
     /// GEMINI_API_KEY/CHROMA_BASE_URL so existing P0-02 tests keep passing under P0-03's added
     /// ValidateOnStart options.</summary>
@@ -56,6 +62,7 @@ internal static class McpServerTestHost
             [MockCrmGatewayOptions.ConfigKey] = baseUrl,
             [GeminiEmbeddingOptions.ApiKeyConfigKey] = ValidGeminiApiKey,
             [ChromaOptions.BaseUrlConfigKey] = ValidChromaBaseUrl,
+            [McpJwtDefaults.SigningKeyConfigKey] = ValidMcpJwtSigningKey,
         });
 
     /// <summary>Boots McpServer with no configuration supplied by any source at all —
@@ -69,6 +76,7 @@ internal static class McpServerTestHost
             [MockCrmGatewayOptions.ConfigKey] = ValidMockCrmApiBaseUrl,
             [GeminiEmbeddingOptions.ApiKeyConfigKey] = null, // tombstone, not omission — see class doc
             [ChromaOptions.BaseUrlConfigKey] = ValidChromaBaseUrl,
+            [McpJwtDefaults.SigningKeyConfigKey] = ValidMcpJwtSigningKey,
         });
 
     public static WebApplicationFactory<McpServerEntryPoint> CreateWithBlankGeminiApiKey() =>
@@ -77,6 +85,7 @@ internal static class McpServerTestHost
             [MockCrmGatewayOptions.ConfigKey] = ValidMockCrmApiBaseUrl,
             [GeminiEmbeddingOptions.ApiKeyConfigKey] = "",
             [ChromaOptions.BaseUrlConfigKey] = ValidChromaBaseUrl,
+            [McpJwtDefaults.SigningKeyConfigKey] = ValidMcpJwtSigningKey,
         });
 
     public static WebApplicationFactory<McpServerEntryPoint> CreateWithoutChromaBaseUrl() =>
@@ -85,6 +94,7 @@ internal static class McpServerTestHost
             [MockCrmGatewayOptions.ConfigKey] = ValidMockCrmApiBaseUrl,
             [GeminiEmbeddingOptions.ApiKeyConfigKey] = ValidGeminiApiKey,
             [ChromaOptions.BaseUrlConfigKey] = null, // tombstone, not omission — see class doc
+            [McpJwtDefaults.SigningKeyConfigKey] = ValidMcpJwtSigningKey,
         });
 
     public static WebApplicationFactory<McpServerEntryPoint> CreateWithBlankChromaBaseUrl() =>
@@ -93,6 +103,7 @@ internal static class McpServerTestHost
             [MockCrmGatewayOptions.ConfigKey] = ValidMockCrmApiBaseUrl,
             [GeminiEmbeddingOptions.ApiKeyConfigKey] = ValidGeminiApiKey,
             [ChromaOptions.BaseUrlConfigKey] = "",
+            [McpJwtDefaults.SigningKeyConfigKey] = ValidMcpJwtSigningKey,
         });
 
     /// <summary>Regression coverage for the ambient-override bug (see class doc): stacks a
@@ -114,6 +125,7 @@ internal static class McpServerTestHost
                     [MockCrmGatewayOptions.ConfigKey] = ValidMockCrmApiBaseUrl,
                     [GeminiEmbeddingOptions.ApiKeyConfigKey] = ValidGeminiApiKey,
                     [ChromaOptions.BaseUrlConfigKey] = ValidChromaBaseUrl,
+            [McpJwtDefaults.SigningKeyConfigKey] = ValidMcpJwtSigningKey,
                 };
                 overrides[configKey] = null; // tombstone — masks the simulated-ambient layer above
                 configurationBuilder.AddInMemoryCollection(overrides);

@@ -1,3 +1,4 @@
+using CrmCopilot.Contracts.Auth;
 using CrmCopilot.Web;
 using CrmCopilot.Web.Chat;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -23,6 +24,7 @@ internal static class WebTestHost
         {
             [McpClientOptions.BaseUrlConfigKey] = ValidMcpServerBaseUrl,
             [GeminiChatOptions.ApiKeyConfigKey] = ValidGeminiApiKey,
+            [McpJwtDefaults.SigningKeyConfigKey] = McpTestTokens.SigningKey,
         });
 
     private static WebApplicationFactory<WebEntryPoint> CreateWith(Dictionary<string, string?> configuration) =>
