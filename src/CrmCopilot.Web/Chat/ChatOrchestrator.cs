@@ -60,14 +60,14 @@ internal sealed class ChatOrchestrator(
     private const string NameLookupNotSupportedMessage =
         "Tra cứu khách hàng qua chat chỉ hỗ trợ theo mã khách hàng (ví dụ CUS-0001), không hỗ trợ theo tên.";
 
-    public async Task<ChatResponse> HandleAsync(string sessionId, string message, CancellationToken cancellationToken)
+    public async Task<ChatResponse> HandleAsync(string userId, string sessionId, string message, CancellationToken cancellationToken)
     {
         if (!SessionIdValidator.TryNormalize(sessionId, out var normalizedSessionId))
         {
             return Error(ChatTurnErrorCode.InvalidArgument, SessionIdValidator.InvalidSessionIdMessage, retryable: false);
         }
 
-        var state = stateStore.GetOrCreate(normalizedSessionId);
+        var state = stateStore.GetOrCreate(userId, normalizedSessionId);
 
         var guardResult = InputGuard.Validate(message, state.CurrentCustomerId);
         if (!guardResult.IsAllowed)
@@ -75,7 +75,7 @@ internal sealed class ChatOrchestrator(
             return Error(guardResult.ErrorCode!, guardResult.ErrorMessage!, retryable: false);
         }
 
-        state = stateStore.Update(normalizedSessionId, s => AppendMessage(s, message));
+        state = stateStore.Update(userId, normalizedSessionId, s => AppendMessage(s, message));
 
         McpClient client;
         IList<McpClientTool> discovered;
@@ -251,7 +251,7 @@ internal sealed class ChatOrchestrator(
 
             sourceIds.AddRange(parsed.SourceIds);
             accumulatedData = MergeData(accumulatedData, callName, parsed.Data);
-            state = stateStore.Update(normalizedSessionId, s => UpdateStateAfterToolCall(s, callName, callArgs, accumulatedData));
+            state = stateStore.Update(userId, normalizedSessionId, s => UpdateStateAfterToolCall(s, callName, callArgs, accumulatedData));
 
             // P0-08 terminal-tool rule: a successful structured CRM tool ends the turn here — no
             // FunctionResponse is sent back and no further Gemini completion is requested.

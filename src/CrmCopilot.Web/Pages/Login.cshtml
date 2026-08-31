@@ -1,0 +1,32 @@
+@page
+@using Microsoft.AspNetCore.Authorization
+@attribute [AllowAnonymous]
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Đăng nhập — CRM Copilot</title>
+  <link rel="stylesheet" href="/css/app.css" />
+</head>
+<body>
+  <main class="login-main">
+    <h1>CRM Copilot</h1>
+    <p class="login-hint">Tài khoản demo trên dữ liệu tổng hợp.</p>
+
+    <form id="login-form" class="login-form">
+      <label for="login-user">Tên đăng nhập</label>
+      <input id="login-user" name="userId" autocomplete="username" required />
+
+      <label for="login-password">Mật khẩu</label>
+      <input id="login-password" name="password" type="password" autocomplete="current-password" required />
+
+      <div id="login-error" class="login-error" role="alert" hidden></div>
+
+      <button id="login-button" type="submit">Đăng nhập</button>
+    </form>
+  </main>
+
+  <script src="/js/login.js"></script>
+</body>
+</html>

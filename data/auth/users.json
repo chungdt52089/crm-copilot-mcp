@@ -1,0 +1,23 @@
+{
+  "synthetic": true,
+  "users": [
+    {
+      "userId": "rm01",
+      "displayName": "Nguyễn Văn RM",
+      "role": "RM",
+      "passwordHash": "AQAAAAIAAYagAAAAEMC+voixoZZwxXNW+Q33Gch+srPmOsYn1RBsuQnNxIi7SH4j25LKdcXr1b41xqrngg=="
+    },
+    {
+      "userId": "auditor01",
+      "displayName": "Trần Thị Auditor",
+      "role": "Auditor",
+      "passwordHash": "AQAAAAIAAYagAAAAEOy63VXJWZcly4ciwJ2PuNkZq7ukaxN1CGKZ0ivaR+BnRgrW9gzF1oV0aHREC1MH8A=="
+    },
+    {
+      "userId": "admin01",
+      "displayName": "Lê Quốc Admin",
+      "role": "Admin",
+      "passwordHash": "AQAAAAIAAYagAAAAEJvmpgdu4abEZBx1c/2iRWrnWc7TZCfJ7B1IHJEsSrjjicO/Ubmh+wszK4c7jVkNpA=="
+    }
+  ]
+}

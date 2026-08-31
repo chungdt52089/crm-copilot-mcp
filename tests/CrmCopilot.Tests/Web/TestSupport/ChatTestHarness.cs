@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using CrmCopilot.Contracts.Crm;
 using CrmCopilot.Contracts.Knowledge;
 using CrmCopilot.McpServer;
@@ -33,7 +34,24 @@ internal sealed class ChatTestHarness : IAsyncDisposable
     public required FakeKnowledgeRetriever KnowledgeRetriever { get; init; }
     public required FakeEmailDraftGenerator EmailDraftGenerator { get; init; }
 
-    public HttpClient CreateWebClient() => WebFactory.CreateClient();
+    /// <summary>P0-12: the auth cookie minted once in <see cref="CreateAsync"/>, replayed on every
+    /// client this harness hands out.</summary>
+    public required string AuthCookie { get; init; }
+
+    /// <summary>
+    /// P0-12: /api/chat now requires an authenticated cookie. The sign-in happens once, in the
+    /// async factory, and the resulting cookie is replayed here — so this stays synchronous and
+    /// none of its ~58 call sites had to change shape.
+    /// </summary>
+    public HttpClient CreateWebClient()
+    {
+        var client = WebFactory.CreateClient();
+        client.DefaultRequestHeaders.Add("Cookie", AuthCookie);
+        return client;
+    }
+
+    /// <summary>An unauthenticated client, for tests that assert the 401 path itself.</summary>
+    public HttpClient CreateAnonymousWebClient() => WebFactory.CreateClient();
 
     public static async Task<ChatTestHarness> CreateAsync(CancellationToken cancellationToken, bool includeExtraTool = false)
     {
@@ -69,6 +87,8 @@ internal sealed class ChatTestHarness : IAsyncDisposable
                 services.AddSingleton<IMcpClientProvider>(mcpClientProvider);
             }));
 
+        var authCookie = await LoginAsync(webFactory, cancellationToken).ConfigureAwait(false);
+
         return new ChatTestHarness
         {
             WebFactory = webFactory,
@@ -78,7 +98,57 @@ internal sealed class ChatTestHarness : IAsyncDisposable
             CrmGateway = crmGateway,
             KnowledgeRetriever = knowledgeRetriever,
             EmailDraftGenerator = emailDraftGenerator,
+            AuthCookie = authCookie,
         };
+    }
+
+    /// <summary>
+    /// Signs in against the real POST /api/auth/login using the synthetic demo credentials from
+    /// data/auth/users.json, and returns the cookie in request-header form (<c>name=value</c>, the
+    /// first segment of Set-Cookie — the attributes after it are response-only).
+    ///
+    /// Shared with <c>AcceptanceHarness</c>, which composes the same Web host. Deliberately the
+    /// real endpoint rather than a stub auth scheme: the sign-in path is then covered by every
+    /// test that talks to /api/chat.
+    /// </summary>
+    public static async Task<string> LoginAsync(
+        WebApplicationFactory<WebEntryPoint> webFactory, CancellationToken cancellationToken,
+        string userId = DefaultUserId, string password = DefaultPassword)
+    {
+        using var client = webFactory.CreateClient();
+        using var response = await client.PostAsJsonAsync(
+            "/api/auth/login", new { userId, password }, cancellationToken).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"Test harness sign-in for '{userId}' failed with HTTP {(int)response.StatusCode}.");
+        }
+
+        var setCookie = response.Headers.TryGetValues("Set-Cookie", out var values)
+            ? values.FirstOrDefault()
+            : null;
+
+        return setCookie is { Length: > 0 }
+            ? setCookie.Split(';')[0]
+            : throw new InvalidOperationException("Test harness sign-in returned no Set-Cookie header.");
+    }
+
+    public const string DefaultUserId = "rm01";
+    public const string DefaultPassword = "Demo@123";
+
+    /// <summary>
+    /// For the few tests that compose their own Web host inline instead of using this harness
+    /// (the controlled MCP-transport-failure cases in ChatEndpointTests) — signs in and returns a
+    /// client already carrying the cookie.
+    /// </summary>
+    public static async Task<HttpClient> CreateAuthenticatedClientAsync(
+        WebApplicationFactory<WebEntryPoint> webFactory, CancellationToken cancellationToken)
+    {
+        var cookie = await LoginAsync(webFactory, cancellationToken).ConfigureAwait(false);
+        var client = webFactory.CreateClient();
+        client.DefaultRequestHeaders.Add("Cookie", cookie);
+        return client;
     }
 
     /// <summary>Same connection recipe as McpToolProtocolTests.ConnectAsync (P0-04) — kept

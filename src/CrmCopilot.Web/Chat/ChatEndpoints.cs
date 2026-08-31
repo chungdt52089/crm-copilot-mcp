@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using CrmCopilot.Contracts.Chat;
 using Microsoft.AspNetCore.Http.HttpResults;
 
@@ -7,24 +8,41 @@ namespace CrmCopilot.Web.Chat;
 /// P0-05 natural-language endpoint (plan §7). Always returns a well-formed
 /// <see cref="ChatResponse"/> JSON body — never a bare framework exception page — using HTTP
 /// status codes analogous to CrmCopilot.MockCrmApi's existing convention (plan D9).
+///
+/// P0-12 (WP1): both routes require an authenticated cookie. The authenticated userId is half of
+/// the conversation-state key, so one user's session can never resolve another user's context.
 /// </summary>
 internal static class ChatEndpoints
 {
     public static IEndpointRouteBuilder MapChatEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapPost("/api/chat", HandleAsync);
-        app.MapDelete("/api/chat/sessions/{sessionId}", HandleResetAsync);
+        app.MapPost("/api/chat", HandleAsync).RequireAuthorization();
+        app.MapDelete("/api/chat/sessions/{sessionId}", HandleResetAsync).RequireAuthorization();
         return app;
     }
 
+    /// <summary>Unreachable after RequireAuthorization, but the state key must never silently
+    /// fall back to a shared empty string if a future scheme omits the claim.</summary>
+    private static string? GetUserId(ClaimsPrincipal user) => user.FindFirstValue(ClaimTypes.NameIdentifier);
+
     private static async Task<JsonHttpResult<ChatResponse>> HandleAsync(
-        ChatRequest request, ChatOrchestrator orchestrator, ILogger<ChatOrchestrator> logger, CancellationToken cancellationToken)
+        ChatRequest request, ClaimsPrincipal user, ChatOrchestrator orchestrator,
+        ILogger<ChatOrchestrator> logger, CancellationToken cancellationToken)
     {
+        if (GetUserId(user) is not { Length: > 0 } userId)
+        {
+            return TypedResults.Json(
+                new ChatResponse(
+                    null, ChatTurnStatus.Error, [], [], null,
+                    new ChatTurnError(ChatTurnErrorCode.InternalError, "Phiên đăng nhập không hợp lệ.", Retryable: false)),
+                statusCode: StatusCodes.Status401Unauthorized);
+        }
+
         ChatResponse response;
         try
         {
             response = await orchestrator.HandleAsync(
-                request.SessionId ?? string.Empty, request.Message ?? string.Empty, cancellationToken).ConfigureAwait(false);
+                userId, request.SessionId ?? string.Empty, request.Message ?? string.Empty, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -52,15 +70,20 @@ internal static class ChatEndpoints
     /// Concurrently resetting a session that has an in-flight <c>/api/chat</c> turn is a known,
     /// accepted MVP race (see plan) — no locking is added here.
     /// </summary>
-    private static IResult HandleResetAsync(string sessionId, IConversationStateStore stateStore)
+    private static IResult HandleResetAsync(string sessionId, ClaimsPrincipal user, IConversationStateStore stateStore)
     {
+        if (GetUserId(user) is not { Length: > 0 } userId)
+        {
+            return TypedResults.Unauthorized();
+        }
+
         if (!SessionIdValidator.TryNormalize(sessionId, out var normalizedSessionId))
         {
             return TypedResults.BadRequest(
                 new ChatTurnError(ChatTurnErrorCode.InvalidArgument, SessionIdValidator.InvalidSessionIdMessage, Retryable: false));
         }
 
-        stateStore.Reset(normalizedSessionId);
+        stateStore.Reset(userId, normalizedSessionId);
         return TypedResults.NoContent();
     }
 
