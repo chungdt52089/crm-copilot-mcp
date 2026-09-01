@@ -1,0 +1,262 @@
+[
+  {
+    "id": "INT-0001",
+    "customerId": "CUS-0001",
+    "type": "Call",
+    "occurredAtUtc": "2026-08-15T08:30:00Z",
+    "summary": "Khách hàng quan tâm tiền gửi kỳ hạn 6 tháng và ưu tiên rủi ro thấp.",
+    "outcome": "FollowUpRequired",
+    "nextAction": "Gửi thông tin sản phẩm trước ngày 2026-08-20",
+    "synthetic": true
+  },
+  {
+    "id": "INT-0002",
+    "customerId": "CUS-0001",
+    "type": "Note",
+    "occurredAtUtc": "2026-08-05T09:00:00Z",
+    "summary": "Trao đổi về nhu cầu mở rộng hạn mức thẻ tín dụng.",
+    "outcome": "NoResponse",
+    "nextAction": null,
+    "synthetic": true
+  },
+  {
+    "id": "INT-0003",
+    "customerId": "CUS-0001",
+    "type": "Note",
+    "occurredAtUtc": "2026-07-16T09:00:00Z",
+    "summary": "Trao đổi về nhu cầu mở rộng hạn mức thẻ tín dụng.",
+    "outcome": "FollowUpRequired",
+    "nextAction": "Liên hệ lại khách hàng trước ngày 2026-07-23",
+    "synthetic": true
+  },
+  {
+    "id": "INT-0004",
+    "customerId": "CUS-0002",
+    "type": "Meeting",
+    "occurredAtUtc": "2026-08-05T09:00:00Z",
+    "summary": "Khách hàng hỏi về lãi suất và điều kiện sản phẩm hiện tại.",
+    "outcome": "FollowUpRequired",
+    "nextAction": "Liên hệ lại khách hàng trước ngày 2026-08-12",
+    "synthetic": true
+  },
+  {
+    "id": "INT-0005",
+    "customerId": "CUS-0002",
+    "type": "Email",
+    "occurredAtUtc": "2026-07-16T09:00:00Z",
+    "summary": "Trao đổi về nhu cầu mở rộng hạn mức thẻ tín dụng.",
+    "outcome": "NoResponse",
+    "nextAction": null,
+    "synthetic": true
+  },
+  {
+    "id": "INT-0006",
+    "customerId": "CUS-0003",
+    "type": "Note",
+    "occurredAtUtc": "2026-07-31T09:00:00Z",
+    "summary": "Nhắc lịch thanh toán khoản vay sắp đến hạn.",
+    "outcome": "FollowUpRequired",
+    "nextAction": "Liên hệ lại khách hàng trước ngày 2026-08-07",
+    "synthetic": true
+  },
+  {
+    "id": "INT-0007",
+    "customerId": "CUS-0003",
+    "type": "Call",
+    "occurredAtUtc": "2026-07-11T09:00:00Z",
+    "summary": "Nhắc lịch thanh toán khoản vay sắp đến hạn.",
+    "outcome": "NoResponse",
+    "nextAction": null,
+    "synthetic": true
+  },
+  {
+    "id": "INT-0008",
+    "customerId": "CUS-0005",
+    "type": "Email",
+    "occurredAtUtc": "2026-07-31T09:00:00Z",
+    "summary": "Nhắc lịch thanh toán khoản vay sắp đến hạn.",
+    "outcome": "FollowUpRequired",
+    "nextAction": "Liên hệ lại khách hàng trước ngày 2026-08-07",
+    "synthetic": true
+  },
+  {
+    "id": "INT-0009",
+    "customerId": "CUS-0005",
+    "type": "Meeting",
+    "occurredAtUtc": "2026-07-24T09:00:00Z",
+    "summary": "Trao đổi về nhu cầu mở rộng hạn mức thẻ tín dụng.",
+    "outcome": "NoResponse",
+    "nextAction": null,
+    "synthetic": true
+  },
+  {
+    "id": "INT-0010",
+    "customerId": "CUS-0006",
+    "type": "Call",
+    "occurredAtUtc": "2026-07-28T09:00:00Z",
+    "summary": "Nhắc lịch thanh toán khoản vay sắp đến hạn.",
+    "outcome": "Completed",
+    "nextAction": null,
+    "synthetic": true
+  },
+  {
+    "id": "INT-0011",
+    "customerId": "CUS-0006",
+    "type": "Call",
+    "occurredAtUtc": "2026-07-21T09:00:00Z",
+    "summary": "Cập nhật thông tin liên hệ mới của khách hàng.",
+    "outcome": "FollowUpRequired",
+    "nextAction": "Liên hệ lại khách hàng trước ngày 2026-07-28",
+    "synthetic": true
+  },
+  {
+    "id": "INT-0012",
+    "customerId": "CUS-0006",
+    "type": "Note",
+    "occurredAtUtc": "2026-07-14T09:00:00Z",
+    "summary": "Khách hàng phản hồi tích cực về dịch vụ chăm sóc gần đây.",
+    "outcome": "Completed",
+    "nextAction": null,
+    "synthetic": true
+  },
+  {
+    "id": "INT-0013",
+    "customerId": "CUS-0007",
+    "type": "Email",
+    "occurredAtUtc": "2026-07-25T09:00:00Z",
+    "summary": "Trao đổi về nhu cầu mở rộng hạn mức thẻ tín dụng.",
+    "outcome": "Completed",
+    "nextAction": null,
+    "synthetic": true
+  },
+  {
+    "id": "INT-0014",
+    "customerId": "CUS-0007",
+    "type": "Call",
+    "occurredAtUtc": "2026-07-18T09:00:00Z",
+    "summary": "Nhắc lịch thanh toán khoản vay sắp đến hạn.",
+    "outcome": "Completed",
+    "nextAction": null,
+    "synthetic": true
+  },
+  {
+    "id": "INT-0015",
+    "customerId": "CUS-0008",
+    "type": "Note",
+    "occurredAtUtc": "2026-07-22T09:00:00Z",
+    "summary": "Khách hàng hỏi về lãi suất và điều kiện sản phẩm hiện tại.",
+    "outcome": "FollowUpRequired",
+    "nextAction": "Liên hệ lại khách hàng trước ngày 2026-07-29",
+    "synthetic": true
+  },
+  {
+    "id": "INT-0016",
+    "customerId": "CUS-0008",
+    "type": "Note",
+    "occurredAtUtc": "2026-07-15T09:00:00Z",
+    "summary": "Nhắc lịch thanh toán khoản vay sắp đến hạn.",
+    "outcome": "NoResponse",
+    "nextAction": null,
+    "synthetic": true
+  },
+  {
+    "id": "INT-0017",
+    "customerId": "CUS-0009",
+    "type": "Note",
+    "occurredAtUtc": "2026-07-19T09:00:00Z",
+    "summary": "Khách hàng quan tâm sản phẩm bảo hiểm đi kèm tài khoản.",
+    "outcome": "FollowUpRequired",
+    "nextAction": "Liên hệ lại khách hàng trước ngày 2026-07-26",
+    "synthetic": true
+  },
+  {
+    "id": "INT-0018",
+    "customerId": "CUS-0009",
+    "type": "Meeting",
+    "occurredAtUtc": "2026-07-12T09:00:00Z",
+    "summary": "Khách hàng hỏi về lãi suất và điều kiện sản phẩm hiện tại.",
+    "outcome": "Completed",
+    "nextAction": null,
+    "synthetic": true
+  },
+  {
+    "id": "INT-0019",
+    "customerId": "CUS-0009",
+    "type": "Note",
+    "occurredAtUtc": "2026-07-05T09:00:00Z",
+    "summary": "Nhắc lịch thanh toán khoản vay sắp đến hạn.",
+    "outcome": "FollowUpRequired",
+    "nextAction": "Liên hệ lại khách hàng trước ngày 2026-07-12",
+    "synthetic": true
+  },
+  {
+    "id": "INT-0020",
+    "customerId": "CUS-0010",
+    "type": "Meeting",
+    "occurredAtUtc": "2026-07-16T09:00:00Z",
+    "summary": "Khách hàng hỏi về lãi suất và điều kiện sản phẩm hiện tại.",
+    "outcome": "FollowUpRequired",
+    "nextAction": "Liên hệ lại khách hàng trước ngày 2026-07-23",
+    "synthetic": true
+  },
+  {
+    "id": "INT-0021",
+    "customerId": "CUS-0010",
+    "type": "Call",
+    "occurredAtUtc": "2026-07-09T09:00:00Z",
+    "summary": "Cập nhật thông tin liên hệ mới của khách hàng.",
+    "outcome": "NoResponse",
+    "nextAction": null,
+    "synthetic": true
+  },
+  {
+    "id": "INT-0022",
+    "customerId": "CUS-0011",
+    "type": "Meeting",
+    "occurredAtUtc": "2026-07-13T09:00:00Z",
+    "summary": "Khách hàng hỏi về lãi suất và điều kiện sản phẩm hiện tại.",
+    "outcome": "Completed",
+    "nextAction": null,
+    "synthetic": true
+  },
+  {
+    "id": "INT-0023",
+    "customerId": "CUS-0011",
+    "type": "Call",
+    "occurredAtUtc": "2026-07-06T09:00:00Z",
+    "summary": "Trao đổi về nhu cầu mở rộng hạn mức thẻ tín dụng.",
+    "outcome": "Completed",
+    "nextAction": null,
+    "synthetic": true
+  },
+  {
+    "id": "INT-0024",
+    "customerId": "CUS-0012",
+    "type": "Note",
+    "occurredAtUtc": "2026-07-10T09:00:00Z",
+    "summary": "Khách hàng quan tâm sản phẩm bảo hiểm đi kèm tài khoản.",
+    "outcome": "Completed",
+    "nextAction": null,
+    "synthetic": true
+  },
+  {
+    "id": "INT-0025",
+    "customerId": "CUS-0012",
+    "type": "Email",
+    "occurredAtUtc": "2026-07-03T09:00:00Z",
+    "summary": "Khách hàng hỏi về lãi suất và điều kiện sản phẩm hiện tại.",
+    "outcome": "NoResponse",
+    "nextAction": null,
+    "synthetic": true
+  },
+  {
+    "id": "INT-0026",
+    "customerId": "CUS-0012",
+    "type": "Note",
+    "occurredAtUtc": "2026-06-26T09:00:00Z",
+    "summary": "Cập nhật thông tin liên hệ mới của khách hàng.",
+    "outcome": "Completed",
+    "nextAction": null,
+    "synthetic": true
+  }
+]

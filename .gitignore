@@ -1,0 +1,28 @@
+# Build artifacts
+bin/
+obj/
+
+# IDE / tooling
+.vs/
+.vscode/
+*.user
+*.suo
+
+# Test results
+TestResults/
+coverage*
+
+# Logs
+*.log
+
+# Secrets / environment
+.env
+.env.*
+!.env.example
+secrets.json
+appsettings.Development.json
+# Runtime logs
+logs/
+
+# Claude Code local settings
+.claude/settings.local.json

@@ -1,0 +1,105 @@
+@page
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CRM Copilot</title>
+  <link rel="stylesheet" href="/css/app.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>CRM Copilot</h1>
+    @* Rendered server-side from the cookie's claims: Razor HTML-encodes these by default, so no
+       /api/auth/me endpoint and no client-side interpolation are needed. *@
+    <span id="current-user" class="current-user">@User.Identity?.Name (@User.FindFirstValue(ClaimTypes.Role))</span>
+    <button id="reset-button" type="button">New conversation</button>
+    <button id="logout-button" type="button">Đăng xuất</button>
+  </header>
+
+  <main>
+    <section id="chat-log" aria-live="polite"></section>
+
+    <div id="error-banner" role="alert" hidden></div>
+
+    <div id="stale-data-notice" class="stale-notice" hidden></div>
+
+    <section id="customer-card" class="panel" hidden>
+      <h2>Khách hàng</h2>
+      <div id="customer-card-body"></div>
+    </section>
+
+    <section id="candidate-list" class="panel" hidden>
+      <h2>Nhiều khách hàng trùng tên</h2>
+      <p>Vui lòng nhập chính xác mã khách hàng:</p>
+      <div id="candidate-list-body"></div>
+    </section>
+
+    <section id="interaction-list" class="panel" hidden>
+      <h2>Tương tác gần đây</h2>
+      <div id="interaction-list-body"></div>
+    </section>
+
+    <section id="opportunity-list" class="panel" hidden>
+      <h2>Cơ hội bán</h2>
+      <div id="opportunity-list-body"></div>
+    </section>
+
+    <section id="campaign-list" class="panel" hidden>
+      <h2>Chiến dịch</h2>
+      <div id="campaign-list-body"></div>
+    </section>
+
+    <section id="call-script-panel" class="panel" hidden>
+      <h2>Kịch bản gọi</h2>
+      <div id="call-script-objective" class="field"></div>
+      <div id="call-script-inferred-badge" class="badge" hidden></div>
+      <h3>Mở đầu</h3>
+      <div id="call-script-opening" class="draft-body"></div>
+      <h3>Câu hỏi khai thác</h3>
+      <ul id="call-script-discovery"></ul>
+      <h3>Điểm trao đổi chính</h3>
+      <ul id="call-script-talking-points"></ul>
+      <h3>Xử lý từ chối</h3>
+      <div id="call-script-objections"></div>
+      <h3>Kết thúc</h3>
+      <div id="call-script-closing" class="draft-body"></div>
+      <div id="call-script-approval-label" class="approval-label"></div>
+      <div id="call-script-source-chips" class="chip-row"></div>
+    </section>
+
+    <section id="draft-panel" class="panel" hidden>
+      <h2>Email nháp</h2>
+      <div id="draft-subject" class="field"></div>
+      <div id="draft-body" class="draft-body"></div>
+      <div id="draft-approval-label" class="approval-label"></div>
+      <div id="draft-source-chips" class="chip-row"></div>
+    </section>
+
+    <details id="trace-panel" class="panel" hidden>
+      <summary>Tool trace &amp; sources</summary>
+      <div id="trace-entries"></div>
+      <div id="source-chips" class="chip-row"></div>
+    </details>
+
+    <form id="chat-form">
+      <label for="chat-input">Nhập yêu cầu</label>
+      <textarea id="chat-input" maxlength="2000" required rows="3"></textarea>
+      <div class="form-actions">
+        <button id="send-button" type="submit">Gửi</button>
+        @* Push-to-talk: hold to record, release to transcribe. The result only fills the textarea —
+           it is never auto-sent, so InputGuard still runs when the RM presses Gửi. *@
+        <button id="mic-button" type="button">🎤 Giữ để nói</button>
+        <span id="speech-status" class="speech-status" role="status" aria-live="polite"></span>
+        <span id="loading-indicator" hidden>Đang xử lý...</span>
+      </div>
+      <p class="speech-notice">Nhận dạng giọng nói gửi audio tới Gemini. Không đọc thông tin nhạy cảm.</p>
+    </form>
+  </main>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>

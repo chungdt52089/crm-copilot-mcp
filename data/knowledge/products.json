@@ -1,0 +1,80 @@
+[
+  {
+    "sourceId": "kb:product:PRD-SAV-006M",
+    "productCode": "PRD-SAV-006M",
+    "name": "Tiền gửi kỳ hạn 6 tháng",
+    "category": "Savings",
+    "summary": "Sản phẩm tiền gửi dành cho khách hàng ưu tiên an toàn và kỳ hạn trung bình.",
+    "eligibility": ["Khách hàng cá nhân", "Có hồ sơ hợp lệ"],
+    "benefits": ["Kỳ hạn 6 tháng", "Quản lý trên kênh số"],
+    "constraints": ["Lãi suất minh họa không được tự suy diễn"],
+    "language": "vi",
+    "synthetic": true,
+    "version": "1.0"
+  },
+  {
+    "sourceId": "kb:product:PRD-SAV-012M",
+    "productCode": "PRD-SAV-012M",
+    "name": "Tiền gửi kỳ hạn 12 tháng",
+    "category": "Savings",
+    "summary": "Sản phẩm tiền gửi kỳ hạn dài hơn dành cho khách hàng có kế hoạch tài chính trung và dài hạn, ưu tiên ổn định.",
+    "eligibility": ["Khách hàng cá nhân", "Có hồ sơ hợp lệ"],
+    "benefits": ["Kỳ hạn 12 tháng", "Quản lý trên kênh số", "Phù hợp mục tiêu tiết kiệm dài hạn"],
+    "constraints": ["Lãi suất minh họa không được tự suy diễn", "Rút trước hạn áp dụng chính sách riêng"],
+    "language": "vi",
+    "synthetic": true,
+    "version": "1.0"
+  },
+  {
+    "sourceId": "kb:product:PRD-CARD-CASHBACK-01",
+    "productCode": "PRD-CARD-CASHBACK-01",
+    "name": "Thẻ tín dụng hoàn tiền",
+    "category": "Card",
+    "summary": "Thẻ tín dụng dành cho khách hàng có nhu cầu chi tiêu thường xuyên và mong muốn được hoàn tiền trên giao dịch hợp lệ.",
+    "eligibility": ["Khách hàng cá nhân đủ 18 tuổi", "Có thu nhập ổn định chứng minh được"],
+    "benefits": ["Hoàn tiền trên nhóm giao dịch ưu tiên", "Quản lý hạn mức trên kênh số"],
+    "constraints": ["Tỉ lệ hoàn tiền minh họa không được tự suy diễn", "Áp dụng theo điều kiện phát hành thẻ"],
+    "language": "vi",
+    "synthetic": true,
+    "version": "1.0"
+  },
+  {
+    "sourceId": "kb:product:PRD-LOAN-PERSONAL-01",
+    "productCode": "PRD-LOAN-PERSONAL-01",
+    "name": "Vay tiêu dùng cá nhân",
+    "category": "Loan",
+    "summary": "Khoản vay tín chấp dành cho khách hàng cá nhân có nhu cầu chi tiêu hoặc mua sắm ngắn hạn.",
+    "eligibility": ["Khách hàng cá nhân có thu nhập ổn định", "Không có nợ xấu tại thời điểm đăng ký"],
+    "benefits": ["Thủ tục đăng ký trên kênh số", "Kỳ hạn vay linh hoạt"],
+    "constraints": ["Lãi suất và hạn mức minh họa không được tự suy diễn", "Phê duyệt cuối cùng theo chính sách tín dụng"],
+    "language": "vi",
+    "synthetic": true,
+    "version": "1.0"
+  },
+  {
+    "sourceId": "kb:product:PRD-LOAN-HOME-01",
+    "productCode": "PRD-LOAN-HOME-01",
+    "name": "Vay mua nhà",
+    "category": "Loan",
+    "summary": "Khoản vay trung và dài hạn hỗ trợ khách hàng mua, xây hoặc sửa chữa nhà ở.",
+    "eligibility": ["Khách hàng cá nhân có tài sản đảm bảo phù hợp", "Có nguồn thu nhập trả nợ ổn định"],
+    "benefits": ["Kỳ hạn vay dài", "Tư vấn hồ sơ trên kênh số"],
+    "constraints": ["Lãi suất và tỉ lệ cho vay minh họa không được tự suy diễn", "Yêu cầu thẩm định tài sản đảm bảo"],
+    "language": "vi",
+    "synthetic": true,
+    "version": "1.0"
+  },
+  {
+    "sourceId": "kb:product:PRD-INS-LIFE-01",
+    "productCode": "PRD-INS-LIFE-01",
+    "name": "Bảo hiểm nhân thọ cơ bản",
+    "category": "Insurance",
+    "summary": "Gói bảo hiểm nhân thọ cơ bản dành cho khách hàng ưu tiên bảo vệ tài chính cho gia đình.",
+    "eligibility": ["Khách hàng cá nhân trong độ tuổi tham gia bảo hiểm", "Đáp ứng điều kiện sức khỏe theo hồ sơ"],
+    "benefits": ["Bảo vệ tài chính trước rủi ro", "Tư vấn hồ sơ trên kênh số"],
+    "constraints": ["Quyền lợi và phí bảo hiểm minh họa không được tự suy diễn", "Áp dụng theo điều khoản hợp đồng bảo hiểm"],
+    "language": "vi",
+    "synthetic": true,
+    "version": "1.0"
+  }
+]

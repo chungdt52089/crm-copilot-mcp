@@ -1,0 +1,38 @@
+# Build context hygiene for the three .NET service images (P0-09 Pha B).
+#
+# The build context is the REPO ROOT, not a project folder: both
+# CrmCopilot.MockCrmApi.csproj and CrmCopilot.McpServer.csproj glob into
+# ..\..\data\, and central package management lives in the root
+# Directory.Packages.props. So exclusions here must be explicit and narrow —
+# data/, src/, global.json and Directory.*.props must all stay in the context.
+
+# Build artifacts — never ship the host's bin/obj into the daemon.
+**/bin/
+**/obj/
+
+# VCS and IDE state
+.git/
+.gitignore
+.vs/
+.vscode/
+.claude/
+**/*.user
+**/*.suo
+
+# Secrets and machine-local config. Nothing here may ever reach an image layer:
+# GEMINI_API_KEY is injected at runtime by compose only. .env.example is not
+# excepted (unlike in .gitignore) because an image has no use for it either.
+.env*
+**/appsettings.Development.json
+**/secrets.json
+
+# Test output and logs
+TestResults/
+coverage*
+**/*.log
+
+# Not needed to build or run a service image
+tests/
+docs/
+**/*.md
+CrmCopilot.slnLaunch.user
