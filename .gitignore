@@ -21,3 +21,8 @@ coverage*
 !.env.example
 secrets.json
 appsettings.Development.json
+# Runtime logs
+logs/
+
+# Claude Code local settings
+.claude/settings.local.json
