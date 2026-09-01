@@ -23,6 +23,11 @@ internal sealed class DatasetCrmGateway : ICrmGateway
 {
     private readonly CrmDataset _dataset = ScenarioDatasetSeed.Dataset;
 
+    /// <summary>P0-14: always empty, and stays that way — <see cref="DeleteCustomerAsync"/> throws,
+    /// so no acceptance scenario can put anything in it. Present only because CustomerSearch now
+    /// takes the registry; every scenario therefore searches the full dataset exactly as before.</summary>
+    private readonly SoftDeleteRegistry _noDeletions = new();
+
     public CustomerLookupQuery? LastLookupQuery { get; private set; }
     public string? LastInteractionsCustomerId { get; private set; }
     public int? LastInteractionsLimit { get; private set; }
@@ -39,7 +44,7 @@ internal sealed class DatasetCrmGateway : ICrmGateway
         // CustomerSearch resolves an exact ID first, then a normalized name — so a single call
         // covers both the ById and ByQuery shapes exactly as the Mock CRM API endpoint does.
         var term = query.CustomerId ?? query.Query!;
-        return Task.FromResult(CustomerSearch.Search(_dataset, term));
+        return Task.FromResult(CustomerSearch.Search(_dataset, term, _noDeletions));
     }
 
     public Task<IReadOnlyList<InteractionDto>> GetInteractionsAsync(string customerId, int limit, CancellationToken cancellationToken)
@@ -92,4 +97,12 @@ internal sealed class DatasetCrmGateway : ICrmGateway
 
         return Task.FromResult(_dataset.GetCampaigns(customerId, limit));
     }
+
+    /// <summary>
+    /// P0-14: no acceptance scenario deletes anything, so this exists only to satisfy ICrmGateway.
+    /// Throwing rather than silently succeeding means a scenario that starts calling it fails loudly
+    /// instead of quietly asserting against a delete that never happened.
+    /// </summary>
+    public Task DeleteCustomerAsync(string customerId, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("No acceptance scenario deletes a customer (P0-14).");
 }

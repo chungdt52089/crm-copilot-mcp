@@ -335,7 +335,8 @@ internal sealed class ChatOrchestrator(
     private static bool IsTerminalStructuredTool(string toolName) =>
         toolName is ApprovedMcpToolNames.GetCustomer or ApprovedMcpToolNames.GetInteractions
             or ApprovedMcpToolNames.GenerateEmail or ApprovedMcpToolNames.GetOpportunities
-            or ApprovedMcpToolNames.GetCampaigns or ApprovedMcpToolNames.GenerateCallScript;
+            or ApprovedMcpToolNames.GetCampaigns or ApprovedMcpToolNames.GenerateCallScript
+            or ApprovedMcpToolNames.DeleteCustomer;
 
     /// <summary>
     /// P0-08 live acceptance finding: <see cref="Minimize"/> deliberately strips every semantic
@@ -417,6 +418,11 @@ internal sealed class ChatOrchestrator(
                 $"Đã tải {data.Campaigns?.Count ?? 0} chiến dịch mà {customerLabel} thuộc diện tham gia. Xem dữ liệu chi tiết bên dưới.",
             ApprovedMcpToolNames.GenerateCallScript =>
                 $"Đã tạo kịch bản gọi cho {customerLabel}. Kịch bản cần RM kiểm tra và phê duyệt.",
+
+            // P0-14. This arm must exist explicitly: the `_` fallback below means generate_email, so
+            // without it a successful delete would report "Đã tạo email nháp cho ...".
+            ApprovedMcpToolNames.DeleteCustomer =>
+                $"Đã xoá {customerLabel} khỏi hệ thống CRM.",
             _ =>
                 $"Đã tạo email nháp cho {customerLabel}. Bản nháp cần RM kiểm tra và phê duyệt.",
         };

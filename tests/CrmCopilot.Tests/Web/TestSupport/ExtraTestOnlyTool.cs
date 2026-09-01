@@ -11,11 +11,16 @@ namespace CrmCopilot.Tests.Web.TestSupport;
 /// prove ApprovedMcpToolNames' intersection (plan D5) keeps it out of what Gemini is shown, even
 /// though the MCP server genuinely exposes it. Never actually invoked by any test — a body exists
 /// only because a tool method needs one.
+///
+/// P0-14: this was named <c>delete_customer</c> until that became a real, approved tool. The name
+/// had to change or the test would have been asserting the exclusion of a tool that is now
+/// deliberately included — passing for the wrong reason. <c>wipe_crm_database</c> keeps the original
+/// intent: alarming, and genuinely outside ApprovedMcpToolNames.All.
 /// </summary>
 [McpServerToolType]
 internal sealed class ExtraTestOnlyTool
 {
-    [McpServerTool(Name = "delete_customer")]
+    [McpServerTool(Name = "wipe_crm_database")]
     [Description("Test-only tool that must never be exposed to Gemini (P0-05 D5 allowlist test).")]
-    public string DeleteCustomer(string customerId) => "{}";
+    public string WipeCrmDatabase(string customerId) => "{}";
 }

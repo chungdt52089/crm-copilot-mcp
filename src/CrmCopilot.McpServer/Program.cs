@@ -35,6 +35,11 @@ builder.Services.AddMcpServer()
     // and a tool the model never sees is a tool it never calls, leaving no refusal to log.
     .WithRequestFilters(filters => filters.AddCallToolFilter(ToolAuthorizationFilter.Apply))
     .WithTools<CustomerTools>()
+
+    // P0-14 (PD-021): the eighth tool and the only ReadOnly=false/Destructive=true one. Registered
+    // unconditionally — tools/list is never filtered by role, so every role discovers it and the
+    // refusal happens at tools/call, where it can be logged.
+    .WithTools<CustomerAdminTools>()
     .WithTools<KnowledgeTools>()
     .WithTools<EmailTools>()
     // P0-10 (plan D16): tool discovery is explicit per type — AddEmailGeneration()/

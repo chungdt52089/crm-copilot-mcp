@@ -206,11 +206,14 @@ public class ChatEndpointTests
         var sentTools = harness.ChatClient.CapturedConfigs[0].Tools;
         var declarations = Assert.Single(sentTools!).FunctionDeclarations!;
 
-        // P0-10 raised the approved set from 4 to 7. The point of the test is unchanged: the extra
-        // tool the harness deliberately registers on the MCP server is absent, because Gemini only
-        // ever sees the intersection of ApprovedMcpToolNames.All and tools/list.
-        Assert.Equal(7, declarations.Count);
-        Assert.DoesNotContain(declarations, d => d.Name == "delete_customer");
+        // P0-10 raised the approved set from 4 to 7; P0-14 to 8. The point of the test is unchanged:
+        // the extra tool the harness deliberately registers on the MCP server is absent, because
+        // Gemini only ever sees the intersection of ApprovedMcpToolNames.All and tools/list.
+        // The excluded tool was renamed in P0-14 — delete_customer is now genuinely approved, and
+        // asserting its absence would have passed for entirely the wrong reason.
+        Assert.Equal(8, declarations.Count);
+        Assert.DoesNotContain(declarations, d => d.Name == "wipe_crm_database");
+        Assert.Contains(declarations, d => d.Name == "delete_customer");
         Assert.Contains(declarations, d => d.Name == "get_customer");
         Assert.Contains(declarations, d => d.Name == "get_interactions");
         Assert.Contains(declarations, d => d.Name == "search_product_knowledge");

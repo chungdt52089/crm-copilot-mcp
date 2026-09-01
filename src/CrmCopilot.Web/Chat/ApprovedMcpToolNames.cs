@@ -17,7 +17,13 @@ internal static class ApprovedMcpToolNames
     public const string GetCampaigns = "get_campaigns";
     public const string GenerateCallScript = "generate_call_script";
 
+    // P0-14 (PD-021) — the eighth tool, and the only write one. Present for EVERY role: the Host
+    // allowlist is not an authorization boundary and never varies by user. Hiding it from an RM here
+    // would mean the call never happens and the MCP server has no refusal to log, which is the
+    // opposite of what PD-022 is for.
+    public const string DeleteCustomer = "delete_customer";
+
     public static readonly IReadOnlySet<string> All = new HashSet<string>(
-        [GetCustomer, GetInteractions, SearchProductKnowledge, GenerateEmail, GetOpportunities, GetCampaigns, GenerateCallScript],
+        [GetCustomer, GetInteractions, SearchProductKnowledge, GenerateEmail, GetOpportunities, GetCampaigns, GenerateCallScript, DeleteCustomer],
         StringComparer.Ordinal);
 }
