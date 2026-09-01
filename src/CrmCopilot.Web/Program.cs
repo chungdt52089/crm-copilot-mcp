@@ -1,5 +1,6 @@
 using CrmCopilot.Web.Auth;
 using CrmCopilot.Web.Chat;
+using CrmCopilot.Web.Speech;
 using Microsoft.AspNetCore.Identity;
 
 // Dev-time only, does not start the web host. Generates one PasswordHasher<T> v3 hash to paste
@@ -19,6 +20,7 @@ builder.Services.AddHealthChecks();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddCookieAuthentication(builder.Configuration, builder.Environment);
 builder.Services.AddChatOrchestration(builder.Configuration);
+builder.Services.AddSpeechTranscription(builder.Configuration);
 builder.Services.AddRazorPages();
 
 var app = builder.Build();
@@ -32,6 +34,7 @@ app.UseAuthorization();
 app.MapHealthChecks("/health");
 app.MapAuthEndpoints(app.Environment);
 app.MapChatEndpoints();
+app.MapTranscribeEndpoints();
 app.MapRazorPages();
 
 app.Run();

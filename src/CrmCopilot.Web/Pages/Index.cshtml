@@ -90,8 +90,13 @@
       <textarea id="chat-input" maxlength="2000" required rows="3"></textarea>
       <div class="form-actions">
         <button id="send-button" type="submit">Gửi</button>
+        @* Push-to-talk: hold to record, release to transcribe. The result only fills the textarea —
+           it is never auto-sent, so InputGuard still runs when the RM presses Gửi. *@
+        <button id="mic-button" type="button">🎤 Giữ để nói</button>
+        <span id="speech-status" class="speech-status" role="status" aria-live="polite"></span>
         <span id="loading-indicator" hidden>Đang xử lý...</span>
       </div>
+      <p class="speech-notice">Nhận dạng giọng nói gửi audio tới Gemini. Không đọc thông tin nhạy cảm.</p>
     </form>
   </main>
 
