@@ -292,3 +292,33 @@ textarea:disabled {
   font-size: 0.85rem;
   margin-top: 0.25rem;
 }
+
+/* ---- P0-15 push-to-talk ---- */
+#mic-button {
+  cursor: pointer;
+  /* Hold-to-record: without this a long press selects the label text on desktop and pops the
+     callout menu on touch, both of which fight the gesture. */
+  user-select: none;
+  touch-action: none;
+}
+
+#mic-button.recording {
+  background-color: #b91c1c;
+  color: #ffffff;
+  border-color: #b91c1c;
+}
+
+.speech-status {
+  font-size: 0.85rem;
+  color: #4b5563;
+}
+
+.speech-notice {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: #92400e;
+  background-color: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 4px;
+  padding: 0.4rem 0.6rem;
+}

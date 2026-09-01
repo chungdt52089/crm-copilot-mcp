@@ -5,6 +5,10 @@
   let sessionId = crypto.randomUUID(); // client-generated only — never persisted, never server-issued
   let busy = false;
 
+  // P0-15 push-to-talk. Declared here (not at the speech block below) so setBusy can read it without
+  // hitting a temporal-dead-zone error on the initial renderAll().
+  let speechSupported = false;
+
   // Client-side accumulated state (Product-Owner-mandated condition 1): ChatResponseData is fresh
   // per HTTP turn on the server (ChatOrchestrator.HandleAsync resets it to all-null every call), so
   // the client — not the server — is what must remember what has already been shown this session.
@@ -33,6 +37,8 @@
     sendButton: document.getElementById("send-button"),
     resetButton: document.getElementById("reset-button"),
     logoutButton: document.getElementById("logout-button"),
+    micButton: document.getElementById("mic-button"),
+    speechStatus: document.getElementById("speech-status"),
     loadingIndicator: document.getElementById("loading-indicator"),
     chatLog: document.getElementById("chat-log"),
     errorBanner: document.getElementById("error-banner"),
@@ -134,6 +140,9 @@
     els.sendButton.disabled = isBusy;
     els.resetButton.disabled = isBusy;
     els.input.disabled = isBusy;
+    // P0-15: the mic follows the same guard as send/reset/input — recording into a textarea that is
+    // mid-submit would overwrite the message currently in flight.
+    els.micButton.disabled = isBusy || !speechSupported;
     els.loadingIndicator.hidden = !isBusy;
   }
 
@@ -568,6 +577,154 @@
       sessionId = crypto.randomUUID();
       setBusy(false);
     }
+  }
+
+  // ---- P0-15 push-to-talk ----------------------------------------------------------------------
+  // The transcript ONLY fills the textarea. sendMessage() is never called from here — that is what
+  // keeps InputGuard (ChatOrchestrator.HandleAsync) on the path of every dictated message, and what
+  // gives the RM the chance to replace a spoken customer name with a code before anything is sent.
+  const AUDIO_MIME = "audio/webm;codecs=opus";
+  const MAX_RECORDING_MS = 15000; // Product Owner override of WP4's 30s: a stuck mic must not freeze the demo
+
+  let recorder = null;
+  let recordedChunks = [];
+  let recordingTimer = null;
+  let recordingStream = null;
+
+  function setSpeechStatus(text) {
+    els.speechStatus.textContent = text || "";
+  }
+
+  function releaseMicrophone() {
+    if (recordingStream) {
+      recordingStream.getTracks().forEach(function (track) { track.stop(); });
+      recordingStream = null;
+    }
+  }
+
+  async function startRecording() {
+    if (busy || recorder) return;
+
+    try {
+      recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (permissionError) {
+      setSpeechStatus("Không truy cập được micro.");
+      return;
+    }
+
+    recordedChunks = [];
+    recorder = new MediaRecorder(recordingStream, { mimeType: AUDIO_MIME });
+    recorder.addEventListener("dataavailable", function (e) {
+      if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+    });
+    recorder.addEventListener("stop", handleRecordingStopped);
+    recorder.start();
+
+    els.micButton.classList.add("recording");
+    setSpeechStatus("Đang ghi âm...");
+    recordingTimer = window.setTimeout(stopRecording, MAX_RECORDING_MS);
+  }
+
+  function stopRecording() {
+    if (recordingTimer !== null) {
+      window.clearTimeout(recordingTimer);
+      recordingTimer = null;
+    }
+    els.micButton.classList.remove("recording");
+    if (!recorder) return;
+    if (recorder.state !== "inactive") recorder.stop(); // -> handleRecordingStopped
+  }
+
+  async function handleRecordingStopped() {
+    releaseMicrophone(); // always, before anything that can throw — never hold the mic open
+    const chunks = recordedChunks;
+    recordedChunks = [];
+    recorder = null;
+
+    if (chunks.length === 0) {
+      setSpeechStatus("");
+      return;
+    }
+
+    await transcribe(new Blob(chunks, { type: AUDIO_MIME }));
+  }
+
+  async function transcribe(blob) {
+    setSpeechStatus("Đang nhận dạng...");
+    els.micButton.disabled = true;
+
+    try {
+      const form = new FormData();
+      form.append("audio", blob, "recording.webm");
+
+      // No Content-Type header on purpose — the browser must set the multipart boundary itself.
+      const res = await fetch("/api/transcribe", { method: "POST", body: form });
+
+      if (res.status === 401) {
+        window.location.href = "/Login";
+        return;
+      }
+
+      let body = null;
+      try {
+        body = await res.json();
+      } catch (parseError) {
+        body = null;
+      }
+
+      if (!res.ok) {
+        setSpeechStatus((body && body.message) || "Không nhận dạng được giọng nói.");
+        return;
+      }
+
+      const text = body && typeof body.text === "string" ? body.text.trim() : "";
+      if (!text) {
+        // Deliberately leaves els.input alone: a blank transcript must not wipe out what the RM
+        // already typed or dictated.
+        setSpeechStatus("Không nghe rõ, thử lại.");
+        return;
+      }
+
+      els.input.value = text;
+      els.input.focus();
+      setSpeechStatus("Đã điền. Kiểm tra rồi bấm Gửi.");
+    } catch (networkError) {
+      setSpeechStatus("Không thể kết nối tới máy chủ.");
+    } finally {
+      els.micButton.disabled = busy || !speechSupported;
+    }
+  }
+
+  speechSupported =
+    typeof MediaRecorder !== "undefined" &&
+    typeof MediaRecorder.isTypeSupported === "function" &&
+    MediaRecorder.isTypeSupported(AUDIO_MIME) &&
+    !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+
+  if (!speechSupported) {
+    els.micButton.disabled = true;
+    els.micButton.title = "Trình duyệt không hỗ trợ ghi âm.";
+    setSpeechStatus("Trình duyệt không hỗ trợ ghi âm.");
+  } else {
+    els.micButton.addEventListener("pointerdown", function (e) {
+      e.preventDefault();
+      // Pointer capture makes this button the target for the whole gesture: drifting off it cannot
+      // cut the recording mid-sentence, and releasing outside it still delivers pointerup here
+      // rather than leaving the recorder running to the 15s cap.
+      if (els.micButton.setPointerCapture) els.micButton.setPointerCapture(e.pointerId);
+      startRecording();
+    });
+
+    els.micButton.addEventListener("pointerup", function (e) {
+      if (els.micButton.hasPointerCapture && els.micButton.hasPointerCapture(e.pointerId)) {
+        els.micButton.releasePointerCapture(e.pointerId);
+      }
+      stopRecording();
+    });
+
+    els.micButton.addEventListener("pointercancel", function () {
+      stopRecording();
+    });
   }
 
   els.form.addEventListener("submit", function (e) {
