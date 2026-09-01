@@ -1,4 +1,5 @@
 using System.Text.Json;
+using CrmCopilot.Contracts.Auth;
 using CrmCopilot.Contracts.Crm;
 using CrmCopilot.Contracts.Crm.Exceptions;
 using CrmCopilot.Contracts.Knowledge;
@@ -53,11 +54,14 @@ public class McpToolProtocolTests
         return (factory, crmGateway, knowledgeRetriever, emailDraftGenerator);
     }
 
-    private static async Task<McpClient> ConnectAsync(WebApplicationFactory<McpServerEntryPoint> factory, CancellationToken cancellationToken)
+    /// <summary>P0-14: <paramref name="role"/> defaults to Admin so every pre-existing test keeps
+    /// exercising the same tool set it did before; the delete-authorization tests pass RM.</summary>
+    private static async Task<McpClient> ConnectAsync(
+        WebApplicationFactory<McpServerEntryPoint> factory, CancellationToken cancellationToken, string role = Roles.Admin)
     {
         var httpClient = factory.CreateClient();
         var transport = new HttpClientTransport(
-            McpTestTransport.Options(httpClient, McpTestTokens.AuthorizationHeader()),
+            McpTestTransport.Options(httpClient, McpTestTokens.AuthorizationHeader(role)),
             httpClient,
             ownsHttpClient: true);
 
@@ -71,12 +75,16 @@ public class McpToolProtocolTests
     }
 
     /// <summary>
-    /// The P0-10 target set (plan gate "final tools/list expected set"). Asserted as an exact,
-    /// ordered set rather than a count so both a missing registration and an unintended extra tool
-    /// fail loudly — .WithTools&lt;T&gt;() in Program.cs is the only thing that puts a tool here.
+    /// The P0-14 target set (docs/07 §2: exactly eight tools). Asserted as an exact, ordered set
+    /// rather than a count so both a missing registration and an unintended extra tool fail loudly —
+    /// .WithTools&lt;T&gt;() in Program.cs is the only thing that puts a tool here.
+    ///
+    /// Note what is NOT asserted anywhere: that this list varies by role. It must not. tools/list is
+    /// deliberately unfiltered, so every role — RM, Auditor, Admin — discovers all eight (PD-022).
     /// </summary>
     private static readonly string[] ExpectedToolNames =
     [
+        "delete_customer",
         "generate_call_script",
         "generate_email",
         "get_campaigns",
@@ -87,7 +95,7 @@ public class McpToolProtocolTests
     ];
 
     [Fact]
-    public async Task ToolsList_ReturnsExactlySevenExpectedToolsWithNonEmptySchemas()
+    public async Task ToolsList_ReturnsExactlyEightExpectedToolsWithNonEmptySchemas()
     {
         var (factory, _, _, _) = CreateFactory();
         await using var factoryDisposable = factory;
@@ -101,12 +109,15 @@ public class McpToolProtocolTests
     }
 
     /// <summary>
-    /// docs/07 §8: every P0 tool is read-only and non-destructive, and no write/send tool exists.
-    /// Asserted across the whole set rather than for generate_email alone, so a future tool cannot
-    /// be added without this annotation contract being considered.
+    /// docs/07 §8, as overridden by PD-021: the seven READ tools stay read-only and non-destructive,
+    /// and no send tool exists. Asserted across the whole set rather than for one tool, so a future
+    /// tool cannot be added without this annotation contract being considered.
+    ///
+    /// delete_customer is excluded here and pinned by its own test below — the exclusion is the
+    /// point, so it is written as an explicit filter rather than a loosened assertion.
     /// </summary>
     [Fact]
-    public async Task ToolsList_EveryToolAnnotatedReadOnlyTrueDestructiveFalse()
+    public async Task ToolsList_EveryReadToolAnnotatedReadOnlyTrueDestructiveFalse()
     {
         var (factory, _, _, _) = CreateFactory();
         await using var factoryDisposable = factory;
@@ -114,7 +125,7 @@ public class McpToolProtocolTests
 
         var tools = await client.ListToolsAsync(cancellationToken: TestContext.Current.CancellationToken);
 
-        Assert.All(tools, tool =>
+        Assert.All(tools.Where(tool => tool.Name != "delete_customer"), tool =>
         {
             var annotations = tool.ProtocolTool.Annotations;
             Assert.Equal(true, annotations?.ReadOnlyHint);
@@ -122,6 +133,102 @@ public class McpToolProtocolTests
         });
 
         Assert.DoesNotContain(tools, tool => tool.Name == "send_email");
+    }
+
+    /// <summary>
+    /// P0-14 (PD-021). delete_customer is the project's only write tool, and the annotation contract
+    /// says so on the wire. The final assertion is the load-bearing one: it is the ONLY destructive
+    /// tool, so a second one cannot be introduced without this failing.
+    /// </summary>
+    [Fact]
+    public async Task ToolsList_DeleteCustomerIsTheOnlyWriteDestructiveTool()
+    {
+        var (factory, _, _, _) = CreateFactory();
+        await using var factoryDisposable = factory;
+        await using var client = await ConnectAsync(factory, TestContext.Current.CancellationToken);
+
+        var tools = await client.ListToolsAsync(cancellationToken: TestContext.Current.CancellationToken);
+
+        var deleteTool = Assert.Single(tools, tool => tool.Name == "delete_customer");
+        Assert.NotEqual(true, deleteTool.ProtocolTool.Annotations?.ReadOnlyHint);
+        Assert.Equal(true, deleteTool.ProtocolTool.Annotations?.DestructiveHint);
+
+        Assert.Single(tools, tool => tool.ProtocolTool.Annotations?.DestructiveHint == true);
+    }
+
+    // --- P0-14 delete_customer (PD-021/PD-023/PD-024) ---
+
+    [Fact]
+    public async Task DeleteCustomer_AsAdmin_ReturnsSuccessWithCustomerSourceId()
+    {
+        var (factory, crmGateway, _, _) = CreateFactory();
+        await using var factoryDisposable = factory;
+        await using var client = await ConnectAsync(factory, TestContext.Current.CancellationToken);
+
+        var result = await client.CallToolAsync(
+            "delete_customer",
+            new Dictionary<string, object?> { ["customerId"] = "CUS-0001" },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var root = ParseTextResult(result);
+        Assert.Equal(McpToolStatus.Success, root.GetProperty("status").GetString());
+        Assert.Equal(
+            "crm:customer:CUS-0001",
+            Assert.Single(root.GetProperty("sourceIds").EnumerateArray()).GetString());
+        Assert.Equal("CUS-0001", root.GetProperty("data").GetProperty("customerId").GetString());
+        Assert.Equal("CUS-0001", crmGateway.LastDeletedCustomerId);
+    }
+
+    /// <summary>
+    /// AC-5, and the reason ToolAuthorizationFilter is a request filter rather than a check copied
+    /// into each tool body: the refusal must happen BEFORE the gateway is touched, not after a
+    /// delete has already been performed. LastDeletedCustomerId staying null is what proves it —
+    /// asserting only on the FORBIDDEN envelope would pass even if the customer had been deleted
+    /// first and the error returned afterwards.
+    /// </summary>
+    [Fact]
+    public async Task DeleteCustomer_AsRm_ReturnsForbiddenWithoutTouchingGateway()
+    {
+        var (factory, crmGateway, _, _) = CreateFactory();
+        await using var factoryDisposable = factory;
+        await using var client = await ConnectAsync(factory, TestContext.Current.CancellationToken, Roles.RM);
+
+        var result = await client.CallToolAsync(
+            "delete_customer",
+            new Dictionary<string, object?> { ["customerId"] = "CUS-0001" },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var root = ParseTextResult(result);
+        Assert.Equal(McpToolStatus.Error, root.GetProperty("status").GetString());
+        Assert.Equal(McpToolErrorCode.Forbidden, root.GetProperty("error").GetProperty("code").GetString());
+        Assert.False(root.GetProperty("error").GetProperty("retryable").GetBoolean());
+        Assert.Empty(root.GetProperty("sourceIds").EnumerateArray());
+
+        Assert.Null(crmGateway.LastDeletedCustomerId);
+    }
+
+    /// <summary>
+    /// A malformed id is refused as malformed, not forwarded to come back NOT_FOUND — which would
+    /// assert the id was well-formed and merely absent. The gateway is never reached either.
+    /// </summary>
+    [Fact]
+    public async Task DeleteCustomer_MalformedCustomerId_ReturnsInvalidArgumentWithoutTouchingGateway()
+    {
+        var (factory, crmGateway, _, _) = CreateFactory();
+        await using var factoryDisposable = factory;
+        await using var client = await ConnectAsync(factory, TestContext.Current.CancellationToken);
+
+        var result = await client.CallToolAsync(
+            "delete_customer",
+            new Dictionary<string, object?> { ["customerId"] = "CS-0003" },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var root = ParseTextResult(result);
+        Assert.Equal(McpToolStatus.Error, root.GetProperty("status").GetString());
+        Assert.Equal(McpToolErrorCode.InvalidArgument, root.GetProperty("error").GetProperty("code").GetString());
+        Assert.Equal(CustomerIdFormat.InvalidMessage, root.GetProperty("error").GetProperty("message").GetString());
+
+        Assert.Null(crmGateway.LastDeletedCustomerId);
     }
 
     [Fact]

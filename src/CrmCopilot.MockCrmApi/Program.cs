@@ -15,6 +15,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddHealthChecks();
 builder.Services.AddSingleton(_ => CrmDatasetLoader.LoadFromAppBaseDirectory());
+builder.Services.AddSingleton<SoftDeleteRegistry>();
 builder.Services.AddExceptionHandler<InternalErrorHandler>();
 builder.Services.AddProblemDetails();
 

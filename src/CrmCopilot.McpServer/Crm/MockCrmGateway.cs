@@ -111,6 +111,35 @@ internal sealed class MockCrmGateway(HttpClient httpClient) : ICrmGateway
     }
 
     /// <summary>
+    /// P0-14 (PD-023). The only write call in this gateway.
+    ///
+    /// Deliberately accepts <b>204 alone</b> as success. A 200 would mean MockCrmApi started
+    /// returning a body for DELETE — contract drift, not a caller error — and
+    /// <see cref="BuildUpstreamExceptionAsync"/> reports it as exactly that rather than letting an
+    /// unrecognized shape pass for a successful delete.
+    /// </summary>
+    public async Task DeleteCustomerAsync(string customerId, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(customerId);
+
+        var requestUri = $"/api/customers/{Uri.EscapeDataString(customerId)}";
+        using var response = await SendDeleteAsync(requestUri, cancellationToken).ConfigureAwait(false);
+
+        if (response.StatusCode == HttpStatusCode.NoContent)
+        {
+            return;
+        }
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            var traceId = await TryReadErrorTraceIdAsync(response, cancellationToken).ConfigureAwait(false);
+            throw new CrmNotFoundException(customerId, traceId);
+        }
+
+        throw await BuildUpstreamExceptionAsync(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Shared 200/404/other mapping for the two customer-scoped collection endpoints added in
     /// P0-10 — identical in shape to <see cref="GetInteractionsAsync"/>'s body, which predates it
     /// and is left untouched.
@@ -134,11 +163,20 @@ internal sealed class MockCrmGateway(HttpClient httpClient) : ICrmGateway
         throw await BuildUpstreamExceptionAsync(response, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<HttpResponseMessage> SendGetAsync(string requestUri, CancellationToken cancellationToken)
+    private Task<HttpResponseMessage> SendGetAsync(string requestUri, CancellationToken cancellationToken) =>
+        SendAsync(token => httpClient.GetAsync(requestUri, token), cancellationToken);
+
+    /// <summary>P0-14: DELETE shares GET's transport-failure mapping verbatim, so the two verbs can
+    /// never drift apart on what counts as retryable.</summary>
+    private Task<HttpResponseMessage> SendDeleteAsync(string requestUri, CancellationToken cancellationToken) =>
+        SendAsync(token => httpClient.DeleteAsync(requestUri, token), cancellationToken);
+
+    private static async Task<HttpResponseMessage> SendAsync(
+        Func<CancellationToken, Task<HttpResponseMessage>> send, CancellationToken cancellationToken)
     {
         try
         {
-            return await httpClient.GetAsync(requestUri, cancellationToken).ConfigureAwait(false);
+            return await send(cancellationToken).ConfigureAwait(false);
         }
         catch (HttpRequestException ex)
         {

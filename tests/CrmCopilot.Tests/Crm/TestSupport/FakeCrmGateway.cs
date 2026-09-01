@@ -24,6 +24,11 @@ internal sealed class FakeCrmGateway : ICrmGateway
     public int? LastOpportunitiesLimit { get; private set; }
     public string? LastCampaignsCustomerId { get; private set; }
     public int? LastCampaignsLimit { get; private set; }
+    public Exception? ThrowOnDeleteCustomer { get; set; }
+
+    /// <summary>P0-14: stays null unless the gateway was actually reached. That is how the
+    /// authorization tests prove FORBIDDEN is decided BEFORE any gateway call, rather than after.</summary>
+    public string? LastDeletedCustomerId { get; private set; }
 
     /// <summary>
     /// Clears the captured Last* values so a multi-turn test can assert "no further call happened"
@@ -39,6 +44,7 @@ internal sealed class FakeCrmGateway : ICrmGateway
         LastOpportunitiesLimit = null;
         LastCampaignsCustomerId = null;
         LastCampaignsLimit = null;
+        LastDeletedCustomerId = null;
     }
 
     public Task<CustomerLookupResult> FindCustomerAsync(CustomerLookupQuery query, CancellationToken cancellationToken)
@@ -92,5 +98,17 @@ internal sealed class FakeCrmGateway : ICrmGateway
         }
 
         return Task.FromResult(CampaignsResult ?? []);
+    }
+
+    public Task DeleteCustomerAsync(string customerId, CancellationToken cancellationToken)
+    {
+        LastDeletedCustomerId = customerId;
+
+        if (ThrowOnDeleteCustomer is { } exception)
+        {
+            throw exception;
+        }
+
+        return Task.CompletedTask;
     }
 }

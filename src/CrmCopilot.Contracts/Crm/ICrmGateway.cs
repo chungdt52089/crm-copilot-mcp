@@ -57,4 +57,17 @@ public interface ICrmGateway
     /// <see cref="CrmUpstreamException"/> for 5xx/transport/malformed-response conditions.
     /// </summary>
     Task<IReadOnlyList<CampaignDto>> GetCampaignsAsync(string customerId, int limit, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// P0-14 (PD-023). Soft-deletes the customer — in the P0 implementation, in MockCrmApi's memory
+    /// only, never on disk, so restarting that process restores the record. This is the one write
+    /// member on this interface; every other member is a read.
+    ///
+    /// Throws <see cref="CrmNotFoundException"/> if the customer does not exist or was already
+    /// deleted — the two are deliberately indistinguishable, matching what every read now reports
+    /// about that id. Throws <see cref="CrmUpstreamException"/> for 5xx/transport conditions and for
+    /// any unexpected success status, which signals upstream contract drift rather than a caller
+    /// error.
+    /// </summary>
+    Task DeleteCustomerAsync(string customerId, CancellationToken cancellationToken);
 }
